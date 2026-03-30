@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt). Pour la **première** entreprise, utiliser une clé issue d'un seed SQL / Prisma, puis `POST /enterprises` peut créer d'autres comptes avec cette clé.\n\n**Flux recommandé**\n1. Définir `api_key` (entreprise existante).\n2. Créer utilisateur → variable `user_id`.\n3. Créer lien `POST /links` → `link_id`.\n4. Créer demande auth → `auth_request_id`.\n5. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n\n**Flux recommandé**\n1. Créer une entreprise via `POST /enterprises` (sans `x-api-key`) pour récupérer `api_key`.\n2. Définir `api_key` pour les autres routes protégées.\n3. Créer utilisateur → variable `user_id`.\n4. Créer lien `POST /links` → `link_id`.\n5. Créer demande auth → `auth_request_id`.\n6. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -54,15 +54,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nom_entreprise\": \"Demo Enterprise\"\n}"
             },
             "url": "{{base_url}}/enterprises",
-            "description": "Crée un compte entreprise. **Requiert déjà une `api_key` valide** (bootstrap via seed). Réponse 201 : `data.company_id`, `data.api_key` (une seule fois), `status` sans hash."
+            "description": "Crée un compte entreprise sans authentification préalable en V1. Réponse 201 : `data.company_id`, `data.api_key` (une seule fois), `status` sans hash."
           },
           "event": [
             {

@@ -95,7 +95,7 @@ En développement (création d’une nouvelle migration) :
 npx prisma migrate dev
 ```
 
-**Bootstrap entreprise** : la route `POST /enterprises` exige une clé API d’une entreprise déjà existante. La première entreprise doit donc être créée via un script de seed, une migration SQL ou une insertion manuelle cohérente avec le hash bcrypt stocké en base.
+**Création entreprise (V1)** : la route `POST /api/enterprises` est ouverte et génère automatiquement une `api_key` renvoyée une seule fois en clair. Cette clé doit ensuite être envoyée dans `x-api-key` pour les autres routes protégées.
 
 ---
 
@@ -121,12 +121,13 @@ Réponse : texte indiquant que l’API est en ligne.
 
 ## Authentification
 
-La plupart des routes sensibles exigent l’en-tête :
+Les routes sensibles exigent l’en-tête :
 
 ```http
 x-api-key: <clé API brute>
 ```
 
+- `POST /api/enterprises` ne requiert pas de `x-api-key` en V1.  
 - La clé est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’une seule fois** à la création de l’entreprise.  
 - Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé.  
 - Réponses typiques : `401` si l’en-tête est absent, `403` si la clé est invalide ou l’entreprise inactive.
@@ -135,22 +136,22 @@ x-api-key: <clé API brute>
 
 ## Endpoints principaux
 
-Référence détaillée : `PROJECT_SPEC.md`. Aperçu :
+Référence détaillée : `PROJECT_SPEC.md`. Description rapide des APIs :
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
-| `GET` | `/api/health` | Santé du service |
-| `POST` | `/api/enterprises` | Création entreprise (auth requise) |
-| `POST` | `/api/users` | Création utilisateur |
-| `POST` | `/api/contacts` | Contact utilisateur |
-| `POST` | `/api/devices` | Appareil utilisateur |
-| `POST` | `/api/recovery` | Méthode de récupération |
-| `POST` | `/api/links` | Lien identité entreprise ↔ utilisateur |
-| `POST` | `/api/auth/request` | Création demande d’auth |
-| `GET` | `/api/auth/status/:request_id` | Statut de la demande |
-| `POST` | `/api/auth/approve/:request_id` | Approbation |
-| `POST` | `/api/auth/reject/:request_id` | Rejet |
-| `GET` | `/api/auth/events/:request_id` | Journal des événements |
+| `GET` | `/api/health` | Vérifie que l’API est disponible |
+| `POST` | `/api/enterprises` | Inscrit une entreprise, génère sa clé API, statut initial `valider` (V1, futur: `attente`) |
+| `POST` | `/api/users` | Crée un utilisateur interne OTP Hora |
+| `POST` | `/api/contacts` | Ajoute un contact (ex. téléphone) à un utilisateur |
+| `POST` | `/api/devices` | Enregistre l’appareil d’un utilisateur |
+| `POST` | `/api/recovery` | Crée une méthode de récupération de compte |
+| `POST` | `/api/links` | Lie un utilisateur OTP Hora à une référence externe d’entreprise |
+| `POST` | `/api/auth/request` | Crée une demande d’authentification à valider |
+| `GET` | `/api/auth/status/:request_id` | Retourne l’état courant d’une demande |
+| `POST` | `/api/auth/approve/:request_id` | Approuve une demande en attente |
+| `POST` | `/api/auth/reject/:request_id` | Rejette une demande en attente |
+| `GET` | `/api/auth/events/:request_id` | Liste l’historique des événements d’une demande |
 
 Les réponses JSON de succès suivent en général le format `{ "data": ... }`. Les erreurs sont unifiées sous `{ "error": { "message", "code", "status" } }`.
 

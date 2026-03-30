@@ -23,7 +23,7 @@ async function createEnterprise(payload) {
     company_id: randomUUID(),
     nom_entreprise: nomEntreprise,
     api_key: hashedApiKey,
-    status: 'active',
+    status: 'valider',
   });
 
   return {

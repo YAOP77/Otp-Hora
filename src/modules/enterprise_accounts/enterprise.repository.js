@@ -14,7 +14,9 @@ async function createEnterprise(data) {
 async function findActiveEnterprises() {
   return prisma.enterprise_accounts.findMany({
     where: {
-      status: 'active',
+      status: {
+        in: ['active', 'valider'],
+      },
     },
     select: {
       company_id: true,
