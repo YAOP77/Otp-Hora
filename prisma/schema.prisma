@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model users {
+  user_id String @id @default(uuid()) @db.Uuid
+  name    String
+  status  String
+
+  user_contacts    user_contacts[]
+  user_devices     user_devices[]
+  identity_links   identity_links[]
+  recovery_methods recovery_methods[]
+}
+
+model user_contacts {
+  contact_id   String    @id @default(uuid()) @db.Uuid
+  user_id      String    @db.Uuid
+  phone_number String
+  verified_at  DateTime?
+
+  users users @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}
+
+model user_devices {
+  device_id         String  @id @default(uuid()) @db.Uuid
+  user_id           String  @db.Uuid
+  device_fingerprint String
+  trusted           Boolean
+
+  users users @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}
+
+model enterprise_accounts {
+  company_id    String @id @default(uuid()) @db.Uuid
+  nom_entreprise String
+  api_key       String
+  status        String
+
+  identity_links identity_links[]
+}
+
+model identity_links {
+  link_id       String @id @default(uuid()) @db.Uuid
+  company_id    String @db.Uuid
+  user_id       String @db.Uuid
+  external_ref  String
+  status        String
+
+  enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+  users               users               @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  auth_requests       auth_requests[]
+
+  @@unique([user_id, company_id])
+}
+
+model auth_requests {
+  request_id String   @id @default(uuid()) @db.Uuid
+  link_id    String   @db.Uuid
+  status     String
+  expires_at DateTime
+
+  identity_links identity_links @relation(fields: [link_id], references: [link_id], onDelete: Cascade)
+  auth_events    auth_events[]
+}
+
+model auth_events {
+  event_id   String   @id @default(uuid()) @db.Uuid
+  request_id String   @db.Uuid
+  action     String
+  created_at DateTime @default(now())
+
+  auth_requests auth_requests @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
+}
+
+model recovery_methods {
+  recovery_id String @id @default(uuid()) @db.Uuid
+  user_id     String @db.Uuid
+  method_type String
+  status      String
+
+  users users @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}

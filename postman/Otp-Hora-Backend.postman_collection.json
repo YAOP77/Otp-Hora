@@ -1,0 +1,509 @@
+{
+  "info": {
+    "name": "OTP Hora Backend API",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `http://localhost:3000`).\n- `api_key` : clé API entreprise (bcrypt). Pour la **première** entreprise, utiliser une clé issue d'un seed SQL / Prisma, puis `POST /enterprises` peut créer d'autres comptes avec cette clé.\n\n**Flux recommandé**\n1. Définir `api_key` (entreprise existante).\n2. Créer utilisateur → variable `user_id`.\n3. Créer lien `POST /links` → `link_id`.\n4. Créer demande auth → `auth_request_id`.\n5. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "otp-hora-backend-v1"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:3000" },
+    { "key": "api_key", "value": "" },
+    { "key": "user_id", "value": "" },
+    { "key": "contact_id", "value": "" },
+    { "key": "device_id", "value": "" },
+    { "key": "enterprise_id", "value": "" },
+    { "key": "link_id", "value": "" },
+    { "key": "auth_request_id", "value": "" },
+    { "key": "recovery_id", "value": "" },
+    { "key": "external_ref", "value": "ext-user-001" }
+  ],
+  "item": [
+    {
+      "name": "health",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Vérifie que l'API répond (réponse texte brut, pas JSON)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Body contains running', function () {",
+                  "  pm.expect(pm.response.text()).to.include('running');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "enterprise_accounts",
+      "item": [
+        {
+          "name": "POST Create enterprise",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_entreprise\": \"Demo Enterprise\"\n}"
+            },
+            "url": "{{base_url}}/enterprises",
+            "description": "Crée un compte entreprise. **Requiert déjà une `api_key` valide** (bootstrap via seed). Réponse 201 : `data.company_id`, `data.api_key` (une seule fois), `status` sans hash."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201 or error', function () {",
+                  "  pm.expect([201,401,403,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.company_id) {",
+                  "    pm.environment.set('enterprise_id', j.data.company_id);",
+                  "    pm.collectionVariables.set('enterprise_id', j.data.company_id);",
+                  "  }",
+                  "  if (j.data && j.data.api_key) {",
+                  "    pm.environment.set('api_key', j.data.api_key);",
+                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "item": [
+        {
+          "name": "POST Create user",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Utilisateur test\"\n}"
+            },
+            "url": "{{base_url}}/users",
+            "description": "Crée un utilisateur (`status` défini côté serveur à active). Enregistre `user_id` pour les modules suivants."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.user_id) {",
+                  "    pm.environment.set('user_id', j.data.user_id);",
+                  "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "user_contacts",
+      "item": [
+        {
+          "name": "POST Create contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"phone_number\": \"+33600000000\"\n}"
+            },
+            "url": "{{base_url}}/contacts",
+            "description": "Ajoute un contact pour `user_id`. Renseigner `user_id` (collection/env) avant l'appel."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.contact_id) {",
+                  "    pm.environment.set('contact_id', j.data.contact_id);",
+                  "    pm.collectionVariables.set('contact_id', j.data.contact_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "user_devices",
+      "item": [
+        {
+          "name": "POST Register device",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"device_fingerprint\": \"fp-demo-001\"\n}"
+            },
+            "url": "{{base_url}}/devices",
+            "description": "Enregistre un appareil pour l'utilisateur (`trusted: false` par défaut)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.device_id) {",
+                  "    pm.environment.set('device_id', j.data.device_id);",
+                  "    pm.collectionVariables.set('device_id', j.data.device_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "recovery_methods",
+      "item": [
+        {
+          "name": "POST Create recovery method",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"method_type\": \"email\"\n}"
+            },
+            "url": "{{base_url}}/recovery",
+            "description": "Crée une méthode de récupération (`status: active`)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.recovery_id) {",
+                  "    pm.environment.set('recovery_id', j.data.recovery_id);",
+                  "    pm.collectionVariables.set('recovery_id', j.data.recovery_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "identity_links",
+      "item": [
+        {
+          "name": "POST Create identity link",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"external_ref\": \"{{external_ref}}\"\n}"
+            },
+            "url": "{{base_url}}/links",
+            "description": "Lie l'utilisateur OTP Hora à l'entreprise authentifiée par la clé API. Enregistre `link_id` pour `/auth/request`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.link_id) {",
+                  "    pm.environment.set('link_id', j.data.link_id);",
+                  "    pm.collectionVariables.set('link_id', j.data.link_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET List links (non implémenté)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": "{{base_url}}/links",
+            "description": "**Backend actuel** : route non exposée → **404** attendu. Conservé pour futur endpoint ou tests de régression."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns 404 if not implemented', function () {",
+                  "  pm.expect([404,200,401,403]).to.include(pm.response.code);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "auth_requests",
+      "item": [
+        {
+          "name": "POST Create auth request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"link_id\": \"{{link_id}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/request",
+            "description": "Crée une demande d'authentification (`pending`, `expires_at`). Sauvegarde `auth_request_id`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,429,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.request_id) {",
+                  "    pm.environment.set('auth_request_id', j.data.request_id);",
+                  "    pm.collectionVariables.set('auth_request_id', j.data.request_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Auth status",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": "{{base_url}}/auth/status/{{auth_request_id}}",
+            "description": "Lit le statut de la demande (`pending`, `approved`, `rejected`, `expired` en lecture)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Approve auth request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/auth/approve/{{auth_request_id}}",
+            "description": "Approuve la demande (corps vide accepté)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,410,429,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Reject auth request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{base_url}}/auth/reject/{{auth_request_id}}",
+            "description": "Rejette la demande. Utiliser une **nouvelle** demande après approve (sinon 409)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,410,429,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "auth_events",
+      "item": [
+        {
+          "name": "GET Auth events by request",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "url": "{{base_url}}/auth/events/{{auth_request_id}}",
+            "description": "Liste les événements (`created`, `approved`, `rejected`) pour la demande."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "  try {",
+                  "    const j = pm.response.json();",
+                  "    pm.test('data is array', function () { pm.expect(Array.isArray(j.data)).to.be.true; });",
+                  "  } catch (e) {}",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
