@@ -202,10 +202,16 @@ Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collectio
 ## Déploiement
 
 1. Définir `NODE_ENV=production` et toutes les variables nécessaires sur la plateforme (secrets, `DATABASE_URL`).  
-2. `npm ci` (ou `npm install --omit=dev` si pas de devDependencies).  
+2. `npm ci` (ou `npm install --omit=dev` si pas de devDependencies). Le script **`postinstall`** exécute `prisma generate` pour générer le client Prisma (nécessaire pour que l’app démarre).  
 3. `npx prisma migrate deploy` puis `npm start`.  
 4. Placer un reverse proxy (TLS, limites de débit complémentaires si besoin).  
 5. Vérifier les journaux structurés (stdout) et centraliser-les (ELK, Datadog, etc.) en production.
+
+### Render
+
+- **Build Command** : `npm install` (le `postinstall` lance `prisma generate`). Tu peux aussi utiliser `npm install && npm run build` pour forcer la génération.  
+- **Start Command** : `node src/server.js` (ou `npm start`).  
+- Définir **`DATABASE_URL`** (et les autres variables) dans l’onglet *Environment* avant le déploiement ; exécuter les migrations une fois (shell Render ou job) : `npx prisma migrate deploy`.
 
 ---
 
