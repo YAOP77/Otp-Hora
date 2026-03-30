@@ -112,7 +112,7 @@ npm run dev
 Vérification rapide :
 
 ```http
-GET /health
+GET /api/health
 ```
 
 Réponse : texte indiquant que l’API est en ligne.
@@ -139,18 +139,18 @@ Référence détaillée : `PROJECT_SPEC.md`. Aperçu :
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
-| `GET` | `/health` | Santé du service |
-| `POST` | `/enterprises` | Création entreprise (auth requise) |
-| `POST` | `/users` | Création utilisateur |
-| `POST` | `/contacts` | Contact utilisateur |
-| `POST` | `/devices` | Appareil utilisateur |
-| `POST` | `/recovery` | Méthode de récupération |
-| `POST` | `/links` | Lien identité entreprise ↔ utilisateur |
-| `POST` | `/auth/request` | Création demande d’auth |
-| `GET` | `/auth/status/:request_id` | Statut de la demande |
-| `POST` | `/auth/approve/:request_id` | Approbation |
-| `POST` | `/auth/reject/:request_id` | Rejet |
-| `GET` | `/auth/events/:request_id` | Journal des événements |
+| `GET` | `/api/health` | Santé du service |
+| `POST` | `/api/enterprises` | Création entreprise (auth requise) |
+| `POST` | `/api/users` | Création utilisateur |
+| `POST` | `/api/contacts` | Contact utilisateur |
+| `POST` | `/api/devices` | Appareil utilisateur |
+| `POST` | `/api/recovery` | Méthode de récupération |
+| `POST` | `/api/links` | Lien identité entreprise ↔ utilisateur |
+| `POST` | `/api/auth/request` | Création demande d’auth |
+| `GET` | `/api/auth/status/:request_id` | Statut de la demande |
+| `POST` | `/api/auth/approve/:request_id` | Approbation |
+| `POST` | `/api/auth/reject/:request_id` | Rejet |
+| `GET` | `/api/auth/events/:request_id` | Journal des événements |
 
 Les réponses JSON de succès suivent en général le format `{ "data": ... }`. Les erreurs sont unifiées sous `{ "error": { "message", "code", "status" } }`.
 

@@ -1,12 +1,12 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `http://localhost:3000`).\n- `api_key` : clé API entreprise (bcrypt). Pour la **première** entreprise, utiliser une clé issue d'un seed SQL / Prisma, puis `POST /enterprises` peut créer d'autres comptes avec cette clé.\n\n**Flux recommandé**\n1. Définir `api_key` (entreprise existante).\n2. Créer utilisateur → variable `user_id`.\n3. Créer lien `POST /links` → `link_id`.\n4. Créer demande auth → `auth_request_id`.\n5. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt). Pour la **première** entreprise, utiliser une clé issue d'un seed SQL / Prisma, puis `POST /enterprises` peut créer d'autres comptes avec cette clé.\n\n**Flux recommandé**\n1. Définir `api_key` (entreprise existante).\n2. Créer utilisateur → variable `user_id`.\n3. Créer lien `POST /links` → `link_id`.\n4. Créer demande auth → `auth_request_id`.\n5. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:3000" },
+    { "key": "base_url", "value": "https://otp-hora.onrender.com/api" },
     { "key": "api_key", "value": "" },
     { "key": "user_id", "value": "" },
     { "key": "contact_id", "value": "" },

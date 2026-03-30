@@ -9,15 +9,15 @@ const { userContactsRouter } = require('./user_contacts/userContacts.routes');
 const { userDevicesRouter } = require('./user_devices/userDevices.routes');
 
 function registerRoutes(app) {
-  app.use(healthRouter);
-  app.use(usersRouter);
-  app.use(enterpriseRouter);
-  app.use(identityLinksRouter);
-  app.use(authRequestsRouter);
-  app.use(authEventsRouter);
-  app.use(recoveryRouter);
-  app.use(userContactsRouter);
-  app.use(userDevicesRouter);
+  app.use('/api', healthRouter);
+  app.use('/api', usersRouter);
+  app.use('/api', enterpriseRouter);
+  app.use('/api', identityLinksRouter);
+  app.use('/api', authRequestsRouter);
+  app.use('/api', authEventsRouter);
+  app.use('/api', recoveryRouter);
+  app.use('/api', userContactsRouter);
+  app.use('/api', userDevicesRouter);
 }
 
 module.exports = { registerRoutes };
