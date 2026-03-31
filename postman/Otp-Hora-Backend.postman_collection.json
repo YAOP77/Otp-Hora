@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n\n**Flux recommandé**\n1. Créer une entreprise via `POST /enterprises` (sans `x-api-key`) pour récupérer `api_key`.\n2. Définir `api_key` pour les autres routes protégées.\n3. Créer utilisateur → variable `user_id`.\n4. Créer lien `POST /links` → `link_id`.\n5. Créer demande auth → `auth_request_id`.\n6. Statut / événements / approve ou reject.\n\n**Note** : `GET /links` n'est pas implémenté dans le backend actuel (réponse 404 attendue).",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n\n**Flux recommandé (spec)**\n1. `POST /enterprises` → `api_key` (onboarding partenaire, sans `x-api-key`).\n2. `POST /users` (sans `x-api-key`) → `user_id` (inscription OTP Hora).\n3. Contacts / devices / recovery (sans `x-api-key`).\n4. `POST /links` avec `x-api-key` → demande de lien `pending` + `link_id`.\n5. `POST /links/confirm` (sans `x-api-key`) → lien `active`.\n6. `POST /auth/request` avec `x-api-key` → `auth_request_id`.\n7. `POST /auth/approve|reject` avec `user_id` dans le corps (sans `x-api-key`) — action utilisateur.\n8. `GET /auth/status` / `GET /auth/events` avec `x-api-key` (entreprise).\n\n**Note** : `GET /links` n'est pas implémenté (404 attendue).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -101,15 +101,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Utilisateur test\"\n}"
+              "raw": "{\n  \"nom\": \"Dupont\",\n  \"prenom\": \"Jean\",\n  \"pin\": \"123456\"\n}"
             },
             "url": "{{base_url}}/users",
-            "description": "Crée un utilisateur (`status` défini côté serveur à active). Enregistre `user_id` pour les modules suivants."
+            "description": "Inscription OTP Hora : `nom`, `prenom`, `pin` (4–6 chiffres, hash en base). Pas de biométrie en V1. Enregistre `user_id`."
           },
           "event": [
             {
@@ -145,8 +144,7 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -189,8 +187,7 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -233,8 +230,7 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -273,7 +269,7 @@
       "name": "identity_links",
       "item": [
         {
-          "name": "POST Create identity link",
+          "name": "POST Request identity link (entreprise)",
           "request": {
             "method": "POST",
             "header": [
@@ -282,10 +278,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"external_ref\": \"{{external_ref}}\"\n}"
+              "raw": "{\n  \"external_ref\": \"{{external_ref}}\"\n}"
             },
             "url": "{{base_url}}/links",
-            "description": "Lie l'utilisateur OTP Hora à l'entreprise authentifiée par la clé API. Enregistre `link_id` pour `/auth/request`."
+            "description": "NGONI demande une liaison (`status: pending`). Réponse : `link_id` + `external_ref`."
           },
           "event": [
             {
@@ -305,6 +301,37 @@
                   "    pm.collectionVariables.set('link_id', j.data.link_id);",
                   "  }",
                   "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Confirm identity link (utilisateur OTP Hora)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"link_id\": \"{{link_id}}\",\n  \"user_id\": \"{{user_id}}\"\n}"
+            },
+            "url": "{{base_url}}/links/confirm",
+            "description": "Après validation utilisateur : active le lien (`status: active`). Sans `x-api-key`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
                 ],
                 "type": "text/javascript"
               }
@@ -411,12 +438,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
-            "body": { "mode": "raw", "raw": "{}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}"
+            },
             "url": "{{base_url}}/auth/approve/{{auth_request_id}}",
-            "description": "Approuve la demande (corps vide accepté)."
+            "description": "Action utilisateur OTP Hora : approuve la demande (corps : `user_id`). Sans `x-api-key`."
           },
           "event": [
             {
@@ -440,12 +469,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
-            "body": { "mode": "raw", "raw": "{}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}"
+            },
             "url": "{{base_url}}/auth/reject/{{auth_request_id}}",
-            "description": "Rejette la demande. Utiliser une **nouvelle** demande après approve (sinon 409)."
+            "description": "Action utilisateur OTP Hora : rejette la demande (`user_id` dans le corps). Sans `x-api-key`."
           },
           "event": [
             {

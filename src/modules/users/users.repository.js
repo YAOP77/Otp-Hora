@@ -5,7 +5,8 @@ async function createUser(data) {
     data,
     select: {
       user_id: true,
-      name: true,
+      nom: true,
+      prenom: true,
       status: true,
     },
   });

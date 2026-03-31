@@ -10,16 +10,8 @@ router.get(
   requireEnterpriseApiKey,
   authRequestsController.getAuthRequestStatus,
 );
-router.post(
-  '/auth/approve/:request_id',
-  requireEnterpriseApiKey,
-  authRequestsController.approveRequest,
-);
-router.post(
-  '/auth/reject/:request_id',
-  requireEnterpriseApiKey,
-  authRequestsController.rejectRequest,
-);
+router.post('/auth/approve/:request_id', authRequestsController.approveRequest);
+router.post('/auth/reject/:request_id', authRequestsController.rejectRequest);
 
 module.exports = {
   authRequestsRouter: router,

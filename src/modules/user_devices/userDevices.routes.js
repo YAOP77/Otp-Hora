@@ -1,10 +1,9 @@
 const { Router } = require('express');
-const { requireEnterpriseApiKey } = require('../../common/apiKeyAuth');
 const userDevicesController = require('./userDevices.controller');
 
 const router = Router();
 
-router.post('/devices', requireEnterpriseApiKey, userDevicesController.createDevice);
+router.post('/devices', userDevicesController.createDevice);
 
 module.exports = {
   userDevicesRouter: router,

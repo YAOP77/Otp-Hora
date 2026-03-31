@@ -31,7 +31,7 @@ La spécification fonctionnelle et métier de référence est décrite dans [`PR
 | Framework  | Express 4                        |
 | Base       | PostgreSQL                       |
 | ORM        | Prisma 7                         |
-| Auth API   | Clé entreprise (`x-api-key`) + bcrypt (hash en base) |
+| Auth API   | Clé entreprise (`x-api-key`) pour les routes partenaires ; identité utilisateur gérée côté OTP Hora (sans clé entreprise) |
 
 ---
 
@@ -89,6 +89,15 @@ npx prisma generate
 npx prisma migrate deploy
 ```
 
+Si la base existe déjà sans historique Prisma (`P3005`), marquer la baseline comme déjà appliquée puis déployer :
+
+```bash
+npx prisma migrate resolve --applied 20260101000000_baseline_existing_database
+npx prisma migrate deploy
+```
+
+Pour une base neuve en développement, `npx prisma db push` reste possible.
+
 En développement (création d’une nouvelle migration) :
 
 ```bash
@@ -121,16 +130,15 @@ Réponse : texte indiquant que l’API est en ligne.
 
 ## Authentification
 
-Les routes sensibles exigent l’en-tête :
+Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
+
+- **Identité OTP Hora** : `POST /api/users`, `POST /api/contacts`, `POST /api/devices`, `POST /api/recovery`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — **sans** `x-api-key` (l’entreprise ne crée pas l’utilisateur et n’administre pas ces ressources).
+- **Partenaire entreprise (NGONI)** : `x-api-key` sur les routes consommées par l’intégration serveur (`POST /api/links` demande de liaison, `POST /api/auth/request`, `GET /api/auth/status/:id`, `GET /api/auth/events/:id`). La clé est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’une seule fois** à `POST /api/enterprises` (onboarding partenaire, V1).
+- Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé entreprise.
 
 ```http
 x-api-key: <clé API brute>
 ```
-
-- `POST /api/enterprises` ne requiert pas de `x-api-key` en V1.  
-- La clé est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’une seule fois** à la création de l’entreprise.  
-- Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé.  
-- Réponses typiques : `401` si l’en-tête est absent, `403` si la clé est invalide ou l’entreprise inactive.
 
 ---
 
@@ -142,16 +150,17 @@ Référence détaillée : `PROJECT_SPEC.md`. Description rapide des APIs :
 |---------|--------|------|
 | `GET` | `/api/health` | Vérifie que l’API est disponible |
 | `POST` | `/api/enterprises` | Inscrit une entreprise, génère sa clé API, statut initial `valider` (V1, futur: `attente`) |
-| `POST` | `/api/users` | Crée un utilisateur interne OTP Hora |
-| `POST` | `/api/contacts` | Ajoute un contact (ex. téléphone) à un utilisateur |
-| `POST` | `/api/devices` | Enregistre l’appareil d’un utilisateur |
-| `POST` | `/api/recovery` | Crée une méthode de récupération de compte |
-| `POST` | `/api/links` | Lie un utilisateur OTP Hora à une référence externe d’entreprise |
-| `POST` | `/api/auth/request` | Crée une demande d’authentification à valider |
-| `GET` | `/api/auth/status/:request_id` | Retourne l’état courant d’une demande |
-| `POST` | `/api/auth/approve/:request_id` | Approuve une demande en attente |
-| `POST` | `/api/auth/reject/:request_id` | Rejette une demande en attente |
-| `GET` | `/api/auth/events/:request_id` | Liste l’historique des événements d’une demande |
+| `POST` | `/api/users` | Inscription : `nom`, `prenom`, `pin` (4–6 chiffres) → `user_id` ; PIN hashé en base — **sans** clé entreprise (V1 : pas de biométrie API) |
+| `POST` | `/api/contacts` | Contact téléphone — **sans** clé entreprise |
+| `POST` | `/api/devices` | Appareil — **sans** clé entreprise |
+| `POST` | `/api/recovery` | Méthode de récupération — **sans** clé entreprise |
+| `POST` | `/api/links` | NGONI demande une liaison (`external_ref`) → lien `pending` — **avec** `x-api-key` |
+| `POST` | `/api/links/confirm` | L’utilisateur valide : associe `user_id` au lien → `active` — **sans** clé entreprise |
+| `POST` | `/api/auth/request` | Crée une demande d’auth (lien **actif** requis) — **avec** `x-api-key` |
+| `GET` | `/api/auth/status/:request_id` | Lit le statut — **avec** `x-api-key` |
+| `POST` | `/api/auth/approve/:request_id` | Acceptation utilisateur (corps : `user_id`) — **sans** clé entreprise |
+| `POST` | `/api/auth/reject/:request_id` | Refus utilisateur (corps : `user_id`) — **sans** clé entreprise |
+| `GET` | `/api/auth/events/:request_id` | Journal des événements — **avec** `x-api-key` |
 
 Les réponses JSON de succès suivent en général le format `{ "data": ... }`. Les erreurs sont unifiées sous `{ "error": { "message", "code", "status" } }`.
 
@@ -195,8 +204,8 @@ Architecture cible par module : **controller** (HTTP) → **service** (règles m
 Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collection.json`.
 
 1. Importer la collection dans Postman.  
-2. Créer un environnement avec `base_url` et `api_key`.  
-3. Enchaîner les requêtes (création utilisateur → lien → `auth/request`, etc.).
+2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises`).  
+3. Enchaîner : utilisateur OTP Hora → contacts/devices/recovery → `POST /links` (entreprise) → `POST /links/confirm` → `auth/request` → approve/reject (utilisateur) → statut / events (entreprise).
 
 ---
 

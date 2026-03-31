@@ -7,9 +7,11 @@ datasource db {
 }
 
 model users {
-  user_id String @id @default(uuid()) @db.Uuid
-  name    String
-  status  String
+  user_id  String @id @default(uuid()) @db.Uuid
+  nom      String
+  prenom   String
+  pin_hash String
+  status   String
 
   user_contacts    user_contacts[]
   user_devices     user_devices[]
@@ -47,15 +49,16 @@ model enterprise_accounts {
 model identity_links {
   link_id       String @id @default(uuid()) @db.Uuid
   company_id    String @db.Uuid
-  user_id       String @db.Uuid
+  user_id       String? @db.Uuid
   external_ref  String
   status        String
 
   enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  users               users               @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  users               users?              @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
   auth_requests       auth_requests[]
 
   @@unique([user_id, company_id])
+  @@unique([company_id, external_ref])
 }
 
 model auth_requests {

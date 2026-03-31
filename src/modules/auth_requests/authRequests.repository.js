@@ -6,6 +6,8 @@ async function findLinkById(linkId) {
     select: {
       link_id: true,
       company_id: true,
+      user_id: true,
+      status: true,
     },
   });
 }
@@ -134,6 +136,24 @@ async function countRecentResolveEventsByCompany(companyId, since) {
   });
 }
 
+async function countRecentResolveEventsByUser(userId, since) {
+  return prisma.auth_events.count({
+    where: {
+      created_at: {
+        gte: since,
+      },
+      action: {
+        in: ['approved', 'rejected'],
+      },
+      auth_requests: {
+        identity_links: {
+          user_id: userId,
+        },
+      },
+    },
+  });
+}
+
 module.exports = {
   findLinkById,
   createAuthRequest,
@@ -142,4 +162,5 @@ module.exports = {
   resolveAuthRequestIfPending,
   countRecentAuthRequestsByCompany,
   countRecentResolveEventsByCompany,
+  countRecentResolveEventsByUser,
 };

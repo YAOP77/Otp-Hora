@@ -33,7 +33,7 @@ async function getAuthRequestStatus(req, res, next) {
 async function approveRequest(req, res, next) {
   try {
     const authRequest = await authRequestsService.approveRequest({
-      company_id: req.enterprise?.company_id,
+      user_id: req.body?.user_id,
       request_id: req.params?.request_id,
     });
 
@@ -48,7 +48,7 @@ async function approveRequest(req, res, next) {
 async function rejectRequest(req, res, next) {
   try {
     const authRequest = await authRequestsService.rejectRequest({
-      company_id: req.enterprise?.company_id,
+      user_id: req.body?.user_id,
       request_id: req.params?.request_id,
     });
 

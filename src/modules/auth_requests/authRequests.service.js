@@ -31,30 +31,26 @@ function logAudit({ request_id, company_id, action, result }) {
   });
 }
 
-async function enforceRateLimit(companyId, action) {
+async function enforceRateLimitForCreate(companyId) {
   const since = new Date(Date.now() - env.rateLimitWindowMs);
-
-  if (action === 'create_request') {
-    const count = await authRequestsRepository.countRecentAuthRequestsByCompany(
-      companyId,
-      since,
-    );
-    if (count >= env.rateLimitCreatePerWindow) {
-      throw createError('Trop de requetes, veuillez reessayer plus tard', 429, 'RATE_LIMITED');
-    }
-    return;
-  }
-
-  const count = await authRequestsRepository.countRecentResolveEventsByCompany(
+  const count = await authRequestsRepository.countRecentAuthRequestsByCompany(
     companyId,
     since,
   );
+  if (count >= env.rateLimitCreatePerWindow) {
+    throw createError('Trop de requetes, veuillez reessayer plus tard', 429, 'RATE_LIMITED');
+  }
+}
+
+async function enforceRateLimitForResolveUser(userId) {
+  const since = new Date(Date.now() - env.rateLimitWindowMs);
+  const count = await authRequestsRepository.countRecentResolveEventsByUser(userId, since);
   if (count >= env.rateLimitResolvePerWindow) {
     throw createError('Trop de requetes, veuillez reessayer plus tard', 429, 'RATE_LIMITED');
   }
 }
 
-async function validateRequestOwnership(companyId, requestId) {
+async function validateRequestOwnershipForEnterprise(companyId, requestId) {
   if (!companyId) {
     throw createError('company_id introuvable depuis la clé API', 401, 'UNAUTHORIZED');
   }
@@ -92,6 +88,48 @@ async function validateRequestOwnership(companyId, requestId) {
   return request;
 }
 
+async function validateRequestOwnershipForUser(userId, requestId) {
+  if (!userId) {
+    throw createError('Le champ user_id est obligatoire', 400, 'INVALID_INPUT');
+  }
+
+  if (!isUuid(userId)) {
+    throw createError('Le champ user_id doit etre un UUID valide', 400, 'INVALID_UUID');
+  }
+
+  if (!requestId) {
+    throw createError('Le parametre request_id est obligatoire', 400, 'INVALID_INPUT');
+  }
+
+  if (!isUuid(requestId)) {
+    throw createError(
+      'Le parametre request_id doit etre un UUID valide',
+      400,
+      'INVALID_UUID',
+    );
+  }
+
+  const request = await authRequestsRepository.findAuthRequestById(requestId);
+  if (!request) {
+    throw createError('Demande introuvable', 404, 'REQUEST_NOT_FOUND');
+  }
+
+  const link = await authRequestsRepository.findLinkById(request.link_id);
+  if (!link) {
+    throw createError('Link introuvable', 404, 'LINK_NOT_FOUND');
+  }
+
+  if (link.user_id !== userId) {
+    throw createError(
+      "Cette demande ne concerne pas cet utilisateur OTP Hora",
+      403,
+      'FORBIDDEN',
+    );
+  }
+
+  return { request, link };
+}
+
 async function createAuthRequest(payload) {
   const companyId = payload?.company_id;
   const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
@@ -105,7 +143,7 @@ async function createAuthRequest(payload) {
     });
     throw createError('company_id introuvable depuis la clé API', 401, 'UNAUTHORIZED');
   }
-  await enforceRateLimit(companyId, 'create_request');
+  await enforceRateLimitForCreate(companyId);
 
   if (!linkId) {
     logAudit({
@@ -152,6 +190,20 @@ async function createAuthRequest(payload) {
     );
   }
 
+  if (link.status !== 'active' || !link.user_id) {
+    logAudit({
+      request_id: null,
+      company_id: companyId,
+      action: 'create_request',
+      result: 'failure',
+    });
+    throw createError(
+      "Le lien d'identité doit être actif et confirmé par l'utilisateur",
+      409,
+      'LINK_NOT_ACTIVE',
+    );
+  }
+
   const created = await authRequestsRepository.createAuthRequestWithEvent({
     request_id: randomUUID(),
     link_id: link.link_id,
@@ -173,7 +225,7 @@ async function getAuthRequestStatus(payload) {
   const companyId = payload?.company_id;
   const requestId =
     typeof payload?.request_id === 'string' ? payload.request_id.trim() : '';
-  const request = await validateRequestOwnership(companyId, requestId);
+  const request = await validateRequestOwnershipForEnterprise(companyId, requestId);
 
   const now = Date.now();
   const isExpired = hasExpired(request.expires_at, now);
@@ -188,13 +240,15 @@ async function getAuthRequestStatus(payload) {
 }
 
 async function resolveRequest(payload, targetStatus, action) {
-  const companyId = payload?.company_id;
+  const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
   const requestId =
     typeof payload?.request_id === 'string' ? payload.request_id.trim() : '';
 
-  const request = await validateRequestOwnership(companyId, requestId);
-  await enforceRateLimit(companyId, action);
+  const { request, link } = await validateRequestOwnershipForUser(userId, requestId);
+  await enforceRateLimitForResolveUser(userId);
   const now = Date.now();
+
+  const companyId = link?.company_id || null;
 
   if (request.status === 'approved' || request.status === 'rejected') {
     if (request.status === targetStatus) {

@@ -1,102 +1,142 @@
-# OTP HORA - SPÉCIFICATION BACKEND
+# OTP HORA - SPÉCIFICATION BACKEND (VERSION STRICTE)
 
 ## OBJECTIF
-Construire une API d’authentification sécurisée permettant :
-- la gestion de l’identité des utilisateurs
-- l’association des utilisateurs aux entreprises
-- la gestion des demandes d’authentification
-- le système de validation
+
+Construire une solution d’identité et de validation sécurisée permettant :
+
+- la gestion d’une identité utilisateur unique et stable
+- la liaison entre un utilisateur OTP Hora et une entreprise (ex: NGONI)
+- l’envoi et le traitement de demandes d’authentification
+- la validation utilisateur via application mobile (remplacement OTP)
 
 ---
 
 ## STACK TECHNIQUE
-- Node.js (Express)
-- PostgreSQL
-- Prisma ORM
-- Firebase (plus tard pour les notifications)
+
+- Backend : Node.js (Express)
+- Base de données : PostgreSQL
+- ORM : Prisma
+- Notifications : Firebase (utilisé côté application mobile)
 
 ---
 
 ## CONCEPT CENTRAL
 
-Le système remplace les codes OTP par une validation via notification push.
+Le système remplace les OTP (SMS / Email) par une validation via application OTP Hora.
 
-Flux :
-1. L’utilisateur tente de se connecter sur l’entreprise (NGONI)
-2. L’entreprise envoie une requête à l’API OTP Hora
-3. OTP Hora crée une demande d’authentification
-4. L’utilisateur reçoit une notification
-5. L’utilisateur approuve ou rejette
-6. L’entreprise vérifie le statut
+### Principe :
+
+1. L’utilisateur possède une identité OTP Hora unique
+2. L’entreprise (NGONI) lie son client à cette identité
+3. À chaque connexion :
+   - NGONI envoie une demande à OTP Hora
+   - OTP Hora notifie l’utilisateur
+   - L’utilisateur accepte ou refuse
+   - NGONI lit le résultat
+
+IMPORTANT :
+- L’entreprise ne gère PAS l’identité
+- Elle ne fait que consommer l’API
 
 ---
 
 ## ACTEURS
 
-- **Utilisateur**
-  - Détient une identité dans OTP Hora (`users`) et des moyens de contact (`user_contacts`) et appareils (`user_devices`).
-  - Reçoit la demande d’authentification et décide d’**approuver** ou **rejeter**.
-- **Système OTP Hora**
-  - Expose l’API, crée et suit les demandes (`auth_requests`), journalise les actions (`auth_events`).
-  - Gère les liens d’identité avec les entreprises (`identity_links`).
-- **Entreprise (NGONI)**
-  - Intègre l’API OTP Hora via un compte entreprise (`enterprise_accounts`) et une **API key**.
-  - Déclenche une demande d’authentification et consulte son statut.
-- **Administrateur**
-  - Administre les statuts (ex. suspension/blocage) des entités existantes via leurs champs `status` (utilisateurs, entreprises, liens, etc.).
-  - Supervise et audite les événements d’authentification via `auth_events`.
+### Utilisateur
+- Crée son compte dans OTP Hora
+- Possède une identité unique
+- Valide ou refuse les demandes
+
+### OTP Hora
+- Gère identités, liens et demandes
+- Centralise la logique de validation
+
+### Entreprise (NGONI)
+- Envoie les demandes d’authentification
+- Lit les statuts
+
+### Administrateur
+- Gère sécurité, support et incidents
 
 ---
 
 ## FLUX FONCTIONNELS
 
-Les flux ci-dessous décrivent le comportement attendu **sans ajouter de logique métier** au-delà de la spécification existante.
+### 1. Inscription utilisateur (OTP Hora)
 
-### Inscription utilisateur
-1. Création d’un utilisateur dans `users` avec `name` et `status`.
-2. Ajout d’un contact dans `user_contacts` (ex. `phone_number`).
-3. Vérification du contact via `verified_at` (si/au moment où le numéro est validé).
+1. L’utilisateur crée son compte dans OTP Hora
+2. OTP Hora crée un `user_id`
+3. Ajout des informations :
+   - nom
+   - prénom
+   - téléphone
+4. Le compte est lié :
+   - au téléphone
+   - à l’appareil
+5. L’utilisateur configure :
+   - PIN ou biométrie (côté produit)
 
-### Premier lien avec une entreprise
-1. Création (ou existence) d’un compte entreprise dans `enterprise_accounts` avec `nom_entreprise`, `api_key`, `status`.
-2. Création d’un lien d’identité dans `identity_links` entre :
-   - `user_id` (OTP Hora)
-   - `company_id` (entreprise)
-   - `external_ref` (référence utilisateur côté entreprise)
-   - `status`
-3. Règles à respecter :
-   - une identité unique par utilisateur
-   - un lien par entreprise et par utilisateur
+**V1 (ce backend)** : **PIN uniquement** — 4 à 6 chiffres, **jamais stocké en clair** (hash bcrypt dans `users.pin_hash`). Pas de biométrie exposée ni requise par l’API pour cette version.
 
-### Demande d’authentification
-1. L’entreprise appelle l’API OTP Hora (authentifiée par API key).
-2. OTP Hora crée une entrée `auth_requests` liée à `identity_links` (`link_id`), avec :
-   - `status`
-   - `expires_at` (expiration obligatoire)
-3. OTP Hora journalise l’action dans `auth_events` (ex. création de demande).
-4. L’utilisateur reçoit une notification (Firebase mentionné « plus tard »).
-
-### Validation (approuver / rejeter)
-1. L’utilisateur approuve ou rejette la demande.
-2. OTP Hora met à jour le `status` de `auth_requests`.
-3. OTP Hora journalise l’action dans `auth_events` avec :
-   - `action`
-   - `created_at`
-4. L’entreprise consulte le statut pour finaliser l’authentification côté NGONI.
-
-### Processus de récupération (basique)
-1. Un moyen de récupération est enregistré dans `recovery_methods` :
-   - `user_id`, `method_type`, `status`
-2. Les changements d’état (activation/suspension) se font via les champs `status` existants.
+IMPORTANT :
+- Cette étape appartient à OTP Hora (pas à l’entreprise)
 
 ---
 
-## TABLES DE BASE DE DONNÉES
+### 2. Lien avec une entreprise
+
+1. L’utilisateur se connecte sur NGONI
+2. NGONI demande une liaison
+3. OTP Hora reçoit la demande
+4. L’utilisateur valide
+5. OTP Hora crée un lien dans `identity_links`
+
+IMPORTANT :
+- NGONI ne stocke QUE `external_ref` + lien OTP Hora
+- NGONI ne crée PAS d’utilisateur OTP Hora
+
+---
+
+### 3. Authentification
+
+1. L’utilisateur tente de se connecter sur NGONI
+2. NGONI envoie une demande à OTP Hora
+3. OTP Hora crée `auth_requests`
+4. OTP Hora notifie l’utilisateur
+5. L’utilisateur accepte ou refuse
+6. OTP Hora met à jour le statut
+7. NGONI lit le statut
+
+---
+
+### 4. Récupération
+
+- Gestion via `recovery_methods`
+- Permet :
+  - récupération compte
+  - déblocage
+  - validation secondaire
+
+---
+
+## RÈGLES MÉTIER
+
+- Un utilisateur possède une identité unique
+- Le numéro peut changer sans casser l’identité
+- Un lien unique par entreprise et utilisateur
+- Les demandes sont temporaires (expiration)
+- Toutes les actions sont journalisées
+
+---
+
+## BASE DE DONNÉES
 
 ### users
 - user_id
-- name
-- status
+- nom
+- prenom
+- pin_hash (hash bcrypt du PIN — jamais le PIN en clair)
+- statut
 
 ### user_contacts
 - contact_id
@@ -143,78 +183,79 @@ Les flux ci-dessous décrivent le comportement attendu **sans ajouter de logique
 
 ---
 
-## ENDPOINTS API
-
-Cette liste est la référence des endpoints nécessaires et reste alignée avec la structure de données et les flux ci-dessus.
-
-### Gestion utilisateurs
-- POST /users
-
-### Gestion entreprises
-- POST /enterprises
-
-### Liens d’identité (entreprise ↔ utilisateur)
-- POST /links
+## API ENTREPRISE (STRICT)
 
 ### Authentification
-- POST /auth/request
-- GET /auth/status/:id
-- POST /auth/approve/:id
-- POST /auth/reject/:id
+
+POST /auth/request  
+→ créer une demande  
+→ retourne request_id  
+
+GET /auth/status/:request_id  
+→ retourne :
+- pending
+- approved
+- rejected
 
 ---
 
-## RÈGLES
+## IMPORTANT SUR L’API
 
-- Une identité unique par utilisateur
-- Un lien par entreprise et par utilisateur
-- Aucun code OTP n’est stocké
-- Chaque requête doit expirer
-- Toutes les actions doivent être journalisées
+- L’entreprise ne doit PAS créer d’utilisateur OTP Hora
+- L’entreprise ne doit PAS gérer les contacts ou appareils
+- L’identité (utilisateur, contacts, appareils, récupération) et la validation finale d’un lien (`identity_links` après acceptation utilisateur) ainsi que l’approbation / le refus d’une demande d’authentification relèvent d’OTP Hora / de l’utilisateur, pas de la clé entreprise
+- Pour la liaison : l’entreprise initie une demande (`POST /links` avec `external_ref`) ; l’utilisateur confirme côté OTP Hora (`POST /links/confirm` avec `link_id` + `user_id`) ; seuls les liens **actifs** servent aux `auth_requests`
+- L’entreprise consomme l’API partenaire avec sa clé pour :
+  - demandes de liaison (`identity_links` côté demande NGONI)
+  - `auth_requests` (création + lecture statut / événements)
 
 ---
 
-## EXIGENCES DE SÉCURITÉ
+## SÉCURITÉ
 
-- **Authentification par API key (entreprises)**
-  - Les appels « entreprise → OTP Hora » doivent être authentifiés via `enterprise_accounts.api_key`.
-- **Expiration des demandes**
-  - `auth_requests.expires_at` doit être appliqué : une demande expirée ne peut plus être validée.
-- **Journalisation**
-  - Toutes les actions d’authentification doivent produire des entrées `auth_events` (ex. création, approbation, rejet).
-- **Blocage / suspension**
-  - La capacité de bloquer/suspendre s’appuie sur les champs `status` déjà présents (utilisateurs, entreprises, liens, demandes, méthodes de récupération).
+- Authentification via API key
+- Validation utilisateur via mobile
+- Expiration des demandes
+- Journalisation complète
+- Blocage possible via status
+- Révocation des liens possible
+
+---
+
+## CAS D’ÉCHEC
+
+- Relance de demande
+- Méthode de récupération
+- Support manuel
+- Suspension temporaire
 
 ---
 
 ## ARCHITECTURE
 
-Structure modulaire :
-
-- controller → gère HTTP
+- controller → HTTP
 - service → logique métier
 - repository → base de données
-
-### Détails
-
-- **Structure modulaire**
-  - Organisation par module fonctionnel (ex. `users`, `enterprises`, `links`, `auth`, `recovery`).
-- **controller**
-  - Valide l’entrée HTTP (format, présence), orchestre la réponse HTTP (status code + payload).
-- **service**
-  - Implémente la logique métier (règles, statuts, expiration, journalisation).
-- **repository**
-  - Accès aux données via Prisma (requêtes, transactions si nécessaire).
-- **middleware**
-  - Couche transversale : sécurité (helmet), CORS, logs (morgan), parsing JSON, authentification API key entreprise, gestion d’erreurs.
+- middleware → sécurité, logs, auth
 
 ---
 
-## IMPORTANT
+## RÈGLES STRICTES DE DÉVELOPPEMENT
 
-- Ne PAS ajouter de fonctionnalités supplémentaires non définies ici
-- Garder la logique simple et propre
-- Respecter la séparation des responsabilités
+- Ne PAS ajouter de fonctionnalités
+- Ne PAS modifier le flux métier
+- Ne PAS déplacer la logique vers l’entreprise
+- Respect strict du cahier des charges
+- Ne PAS casser l’architecture existante
+- Corriger uniquement les incohérences
 
-Ce document doit être strictement respecté pendant le développement.
+---
 
+## OBJECTIF FINAL
+
+Construire une solution où :
+
+- l’identité est centralisée dans OTP Hora
+- l’entreprise ne fait que consommer l’API
+- l’authentification se fait sans OTP
+- l’utilisateur valide via application mobile
