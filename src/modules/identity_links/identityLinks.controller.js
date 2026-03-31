@@ -20,6 +20,7 @@ async function confirmIdentityLink(req, res, next) {
     const link = await identityLinksService.confirmIdentityLink({
       link_id: req.body?.link_id,
       user_id: req.body?.user_id,
+      requester_user_id: req.userAuth?.user_id,
     });
 
     return res.status(200).json({

@@ -77,9 +77,13 @@ IMPORTANT :
    - PIN ou biométrie (côté produit)
 
 **V1 (ce backend)** : **PIN uniquement** — 4 à 6 chiffres, **jamais stocké en clair** (hash bcrypt dans `users.pin_hash`). Pas de biométrie exposée ni requise par l’API pour cette version.
+Après inscription, OTP Hora émet un couple `access_token` / `refresh_token` pour sécuriser les routes sensibles utilisateur.
 
 IMPORTANT :
 - Cette étape appartient à OTP Hora (pas à l’entreprise)
+- OTP Hora doit permettre la lecture du profil utilisateur pour support et vérification du parcours
+  - `GET /users/:user_id` retourne : identité (`nom`, `prenom`), contacts, comptes liés (nombre + liste)
+  - `pin_hash` peut être retourné uniquement sur demande explicite (`include_pin_hash=true`) dans ce backend V1
 
 ---
 
@@ -199,10 +203,49 @@ GET /auth/status/:request_id
 
 ---
 
+## API UTILISATEUR / OTP HORA (V1)
+
+POST /users  
+→ crée l’identité OTP Hora (`nom`, `prenom`, `pin`)  
+→ `pin` stocké uniquement en hash (`pin_hash`)
+
+GET /users/:user_id  
+→ retourne les informations utilisateur OTP Hora :
+- nom
+- prenom
+- contacts
+- linked_accounts_count
+- linked_accounts (liste des comptes liés)
+- `pin_hash` seulement si `include_pin_hash=true`
+
+POST /users/refresh-token
+→ renouvelle `access_token` + `refresh_token` utilisateur
+
+POST /contacts  
+→ ajoute le téléphone de l’utilisateur
+
+POST /devices  
+→ ajoute l’appareil de l’utilisateur
+
+POST /recovery  
+→ ajoute une méthode de récupération
+
+POST /links/confirm  
+→ confirmation utilisateur d’une demande de liaison entreprise
+
+POST /auth/approve/:request_id  
+POST /auth/reject/:request_id  
+→ décision utilisateur sur la demande d’authentification
+
+Routes utilisateur sensibles protégées via `Authorization: Bearer <access_token>`.
+
+---
+
 ## IMPORTANT SUR L’API
 
 - L’entreprise ne doit PAS créer d’utilisateur OTP Hora
 - L’entreprise ne doit PAS gérer les contacts ou appareils
+- L’entreprise ne doit PAS lire directement les informations d’identité OTP Hora (profil utilisateur), hors ce que permettent les endpoints partenaires
 - L’identité (utilisateur, contacts, appareils, récupération) et la validation finale d’un lien (`identity_links` après acceptation utilisateur) ainsi que l’approbation / le refus d’une demande d’authentification relèvent d’OTP Hora / de l’utilisateur, pas de la clé entreprise
 - Pour la liaison : l’entreprise initie une demande (`POST /links` avec `external_ref`) ; l’utilisateur confirme côté OTP Hora (`POST /links/confirm` avec `link_id` + `user_id`) ; seuls les liens **actifs** servent aux `auth_requests`
 - L’entreprise consomme l’API partenaire avec sa clé pour :

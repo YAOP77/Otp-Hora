@@ -16,6 +16,14 @@ const env = {
     Number.parseInt(process.env.API_KEY_CACHE_TTL_MS, 10) || 5 * 60 * 1000,
   apiKeyCacheMaxEntries:
     Number.parseInt(process.env.API_KEY_CACHE_MAX_ENTRIES, 10) || 10_000,
+  userAccessTokenSecret:
+    process.env.USER_ACCESS_TOKEN_SECRET || 'dev_user_access_token_secret_change_me',
+  userRefreshTokenSecret:
+    process.env.USER_REFRESH_TOKEN_SECRET || 'dev_user_refresh_token_secret_change_me',
+  userAccessTokenTtl:
+    Number.parseInt(process.env.USER_ACCESS_TOKEN_TTL_SECONDS, 10) || 15 * 60,
+  userRefreshTokenTtl:
+    Number.parseInt(process.env.USER_REFRESH_TOKEN_TTL_SECONDS, 10) || 7 * 24 * 60 * 60,
 };
 
 module.exports = { env };

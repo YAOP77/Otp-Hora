@@ -34,6 +34,7 @@ async function approveRequest(req, res, next) {
   try {
     const authRequest = await authRequestsService.approveRequest({
       user_id: req.body?.user_id,
+      requester_user_id: req.userAuth?.user_id,
       request_id: req.params?.request_id,
     });
 
@@ -49,6 +50,7 @@ async function rejectRequest(req, res, next) {
   try {
     const authRequest = await authRequestsService.rejectRequest({
       user_id: req.body?.user_id,
+      requester_user_id: req.userAuth?.user_id,
       request_id: req.params?.request_id,
     });
 

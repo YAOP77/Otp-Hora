@@ -60,6 +60,8 @@ async function requestIdentityLink(payload) {
 async function confirmIdentityLink(payload) {
   const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
   const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
+  const requesterUserId =
+    typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
 
   if (!linkId || !isUuid(linkId)) {
     throw createError('Le champ link_id doit être un UUID valide', 400, 'INVALID_UUID');
@@ -67,6 +69,10 @@ async function confirmIdentityLink(payload) {
 
   if (!userId || !isUuid(userId)) {
     throw createError('Le champ user_id doit être un UUID valide', 400, 'INVALID_UUID');
+  }
+
+  if (requesterUserId && requesterUserId !== userId) {
+    throw createError('Accès interdit pour confirmer ce lien', 403, 'FORBIDDEN');
   }
 
   const link = await identityLinksRepository.findByLinkIdFull(linkId);

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n\n**Flux recommandé (spec)**\n1. `POST /enterprises` → `api_key` (onboarding partenaire, sans `x-api-key`).\n2. `POST /users` (sans `x-api-key`) → `user_id` (inscription OTP Hora).\n3. Contacts / devices / recovery (sans `x-api-key`).\n4. `POST /links` avec `x-api-key` → demande de lien `pending` + `link_id`.\n5. `POST /links/confirm` (sans `x-api-key`) → lien `active`.\n6. `POST /auth/request` avec `x-api-key` → `auth_request_id`.\n7. `POST /auth/approve|reject` avec `user_id` dans le corps (sans `x-api-key`) — action utilisateur.\n8. `GET /auth/status` / `GET /auth/events` avec `x-api-key` (entreprise).\n\n**Note** : `GET /links` n'est pas implémenté (404 attendue).",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n- `access_token` / `refresh_token` : émis après `POST /users`.\n\n**Flux recommandé (spec)**\n1. `POST /enterprises` → `api_key` (onboarding partenaire, sans `x-api-key`).\n2. `POST /users` (sans `x-api-key`) → `user_id` + `auth.access_token` + `auth.refresh_token`.\n3. `GET /users/:user_id` (Bearer token) + `POST /users/refresh-token` si besoin.\n4. Contacts / devices / recovery (sans `x-api-key`).\n5. `POST /links` avec `x-api-key` → demande de lien `pending` + `link_id`.\n6. `POST /links/confirm` (Bearer token) → lien `active`.\n7. `POST /auth/request` avec `x-api-key` → `auth_request_id`.\n8. `POST /auth/approve|reject` (Bearer token + `user_id`) — action utilisateur.\n9. `GET /auth/status` / `GET /auth/events` avec `x-api-key` (entreprise).\n\n**Note** : `GET /links` n'est pas implémenté (404 attendue).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -15,14 +15,16 @@
     { "key": "link_id", "value": "" },
     { "key": "auth_request_id", "value": "" },
     { "key": "recovery_id", "value": "" },
-    { "key": "external_ref", "value": "ext-user-001" }
+    { "key": "external_ref", "value": "ext-user-001" },
+    { "key": "access_token", "value": "" },
+    { "key": "refresh_token", "value": "" }
   ],
   "item": [
     {
       "name": "health",
       "item": [
         {
-          "name": "GET Health",
+          "name": "[OTP HORA] GET Health",
           "request": {
             "method": "GET",
             "header": [],
@@ -50,11 +52,12 @@
       "name": "enterprise_accounts",
       "item": [
         {
-          "name": "POST Create enterprise",
+          "name": "[OTP HORA] POST Create enterprise (onboarding partenaire)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -97,11 +100,12 @@
       "name": "users",
       "item": [
         {
-          "name": "POST Create user",
+          "name": "[UTILISATEUR] POST Create user (inscription OTP Hora)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -127,6 +131,84 @@
                   "    pm.environment.set('user_id', j.data.user_id);",
                   "    pm.collectionVariables.set('user_id', j.data.user_id);",
                   "  }",
+                  "  if (j.auth && j.auth.access_token) {",
+                  "    pm.environment.set('access_token', j.auth.access_token);",
+                  "    pm.collectionVariables.set('access_token', j.auth.access_token);",
+                  "  }",
+                  "  if (j.auth && j.auth.refresh_token) {",
+                  "    pm.environment.set('refresh_token', j.auth.refresh_token);",
+                  "    pm.collectionVariables.set('refresh_token', j.auth.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] GET User profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/users/{{user_id}}?include_pin_hash=true",
+            "description": "Retourne les infos utilisateur OTP Hora : `nom`, `prenom`, `contacts`, `linked_accounts_count`, `linked_accounts`. `include_pin_hash=true` ajoute `pin_hash`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Refresh user token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/users/refresh-token",
+            "description": "Renouvelle les tokens utilisateur OTP Hora via `refresh_token`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.access_token) {",
+                  "    pm.environment.set('access_token', j.data.access_token);",
+                  "    pm.collectionVariables.set('access_token', j.data.access_token);",
+                  "  }",
+                  "  if (j.data && j.data.refresh_token) {",
+                  "    pm.environment.set('refresh_token', j.data.refresh_token);",
+                  "    pm.collectionVariables.set('refresh_token', j.data.refresh_token);",
+                  "  }",
                   "} catch (e) {}"
                 ],
                 "type": "text/javascript"
@@ -140,7 +222,7 @@
       "name": "user_contacts",
       "item": [
         {
-          "name": "POST Create contact",
+          "name": "[UTILISATEUR] POST Create contact (téléphone)",
           "request": {
             "method": "POST",
             "header": [
@@ -183,7 +265,7 @@
       "name": "user_devices",
       "item": [
         {
-          "name": "POST Register device",
+          "name": "[UTILISATEUR] POST Register device",
           "request": {
             "method": "POST",
             "header": [
@@ -226,7 +308,7 @@
       "name": "recovery_methods",
       "item": [
         {
-          "name": "POST Create recovery method",
+          "name": "[UTILISATEUR] POST Create recovery method",
           "request": {
             "method": "POST",
             "header": [
@@ -269,7 +351,7 @@
       "name": "identity_links",
       "item": [
         {
-          "name": "POST Request identity link (entreprise)",
+          "name": "[ENTREPRISE] POST Request identity link",
           "request": {
             "method": "POST",
             "header": [
@@ -308,7 +390,7 @@
           ]
         },
         {
-          "name": "POST Confirm identity link (utilisateur OTP Hora)",
+          "name": "[UTILISATEUR] POST Confirm identity link",
           "request": {
             "method": "POST",
             "header": [
@@ -339,7 +421,7 @@
           ]
         },
         {
-          "name": "GET List links (non implémenté)",
+          "name": "[ENTREPRISE] GET List links (non implémenté)",
           "request": {
             "method": "GET",
             "header": [
@@ -368,7 +450,7 @@
       "name": "auth_requests",
       "item": [
         {
-          "name": "POST Create auth request",
+          "name": "[ENTREPRISE] POST Create auth request",
           "request": {
             "method": "POST",
             "header": [
@@ -407,7 +489,7 @@
           ]
         },
         {
-          "name": "GET Auth status",
+          "name": "[ENTREPRISE] GET Auth status",
           "request": {
             "method": "GET",
             "header": [
@@ -434,7 +516,7 @@
           ]
         },
         {
-          "name": "POST Approve auth request",
+          "name": "[UTILISATEUR] POST Approve auth request",
           "request": {
             "method": "POST",
             "header": [
@@ -465,7 +547,7 @@
           ]
         },
         {
-          "name": "POST Reject auth request",
+          "name": "[UTILISATEUR] POST Reject auth request",
           "request": {
             "method": "POST",
             "header": [
@@ -501,7 +583,7 @@
       "name": "auth_events",
       "item": [
         {
-          "name": "GET Auth events by request",
+          "name": "[ENTREPRISE] GET Auth events by request",
           "request": {
             "method": "GET",
             "header": [

@@ -73,6 +73,10 @@ Variables principales (voir aussi `.env.example`) :
 | `CORS_ORIGIN` | Optionnel : origines CORS séparées par des virgules |
 | `RATE_LIMIT_*` | Fenêtre et quotas pour le rate limiting sur les routes `auth_*` |
 | `API_KEY_CACHE_*` | TTL et taille du cache mémoire des authentifications API key réussies |
+| `USER_ACCESS_TOKEN_SECRET` | Secret de signature JWT access token utilisateur |
+| `USER_REFRESH_TOKEN_SECRET` | Secret de signature JWT refresh token utilisateur |
+| `USER_ACCESS_TOKEN_TTL_SECONDS` | Durée de vie access token utilisateur (sec) |
+| `USER_REFRESH_TOKEN_TTL_SECONDS` | Durée de vie refresh token utilisateur (sec) |
 
 > **Ne jamais commiter le fichier `.env`** : il est listé dans `.gitignore`.
 
@@ -132,7 +136,8 @@ Réponse : texte indiquant que l’API est en ligne.
 
 Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
 
-- **Identité OTP Hora** : `POST /api/users`, `POST /api/contacts`, `POST /api/devices`, `POST /api/recovery`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — **sans** `x-api-key` (l’entreprise ne crée pas l’utilisateur et n’administre pas ces ressources).
+- **Identité OTP Hora** : `POST /api/users` (inscription + émission tokens), `POST /api/users/refresh-token`, `POST /api/contacts`, `POST /api/devices`, `POST /api/recovery` — sans `x-api-key` entreprise.
+- **Routes utilisateur sensibles** : `GET /api/users/:user_id`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — protégées par `Authorization: Bearer <access_token>`.
 - **Partenaire entreprise (NGONI)** : `x-api-key` sur les routes consommées par l’intégration serveur (`POST /api/links` demande de liaison, `POST /api/auth/request`, `GET /api/auth/status/:id`, `GET /api/auth/events/:id`). La clé est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’une seule fois** à `POST /api/enterprises` (onboarding partenaire, V1).
 - Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé entreprise.
 
@@ -140,17 +145,50 @@ Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
 x-api-key: <clé API brute>
 ```
 
+```http
+Authorization: Bearer <access_token_utilisateur>
+```
+
 ---
 
 ## Endpoints principaux
 
-Référence détaillée : `PROJECT_SPEC.md`. Description rapide des APIs :
+Référence détaillée : `PROJECT_SPEC.md`.
+
+### Séparation des responsabilités (qui appelle quoi)
+
+- **Entreprise (NGONI) — intégration serveur (B2B)**  
+  Appels réalisés par le backend de l’entreprise avec `x-api-key`.
+  - `POST /api/links` : demander une liaison (crée un lien `pending` avec `external_ref`)
+  - `POST /api/auth/request` : créer une demande d’auth (nécessite un lien `active`)
+  - `GET /api/auth/status/:request_id` : lire le statut
+  - `GET /api/auth/events/:request_id` : lire l’historique
+
+- **Utilisateur (OTP Hora) — côté application OTP Hora**  
+  Appels réalisés par l’utilisateur (dans cette V1 API, sans `x-api-key`).
+  - `POST /api/users` : inscription (nom, prénom, PIN)
+  - `POST /api/users/refresh-token` : renouveler les tokens utilisateur via `refresh_token`
+  - `GET /api/users/:user_id` : lire le profil OTP Hora (contacts + comptes liés), protégé par bearer token
+  - `POST /api/contacts` : ajouter téléphone
+  - `POST /api/devices` : enregistrer appareil
+  - `POST /api/recovery` : méthode de récupération
+  - `POST /api/links/confirm` : confirmer une liaison (associe `user_id` au `link_id`)
+  - `POST /api/auth/approve/:request_id` : accepter une demande (corps : `user_id`)
+  - `POST /api/auth/reject/:request_id` : refuser une demande (corps : `user_id`)
+
+- **OTP Hora (service)**  
+  - `GET /api/health` : disponibilité du service
+  - `POST /api/enterprises` : onboarding partenaire (génère `api_key` en clair une seule fois)
+
+### Tableau récapitulatif
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
 | `GET` | `/api/health` | Vérifie que l’API est disponible |
 | `POST` | `/api/enterprises` | Inscrit une entreprise, génère sa clé API, statut initial `valider` (V1, futur: `attente`) |
 | `POST` | `/api/users` | Inscription : `nom`, `prenom`, `pin` (4–6 chiffres) → `user_id` ; PIN hashé en base — **sans** clé entreprise (V1 : pas de biométrie API) |
+| `POST` | `/api/users/refresh-token` | Renouvelle `access_token` + `refresh_token` utilisateur |
+| `GET` | `/api/users/:user_id` | Profil utilisateur OTP Hora : nom, prénom, contacts, comptes liés (nombre + liste). `?include_pin_hash=true` pour afficher `pin_hash` |
 | `POST` | `/api/contacts` | Contact téléphone — **sans** clé entreprise |
 | `POST` | `/api/devices` | Appareil — **sans** clé entreprise |
 | `POST` | `/api/recovery` | Méthode de récupération — **sans** clé entreprise |
@@ -205,7 +243,7 @@ Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collectio
 
 1. Importer la collection dans Postman.  
 2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises`).  
-3. Enchaîner : utilisateur OTP Hora → contacts/devices/recovery → `POST /links` (entreprise) → `POST /links/confirm` → `auth/request` → approve/reject (utilisateur) → statut / events (entreprise).
+3. Enchaîner : utilisateur OTP Hora → `GET /users/:user_id` (vérification profil) → contacts/devices/recovery → `POST /links` (entreprise) → `POST /links/confirm` → `auth/request` → approve/reject (utilisateur) → statut / events (entreprise).
 
 ---
 

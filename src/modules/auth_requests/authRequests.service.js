@@ -241,8 +241,14 @@ async function getAuthRequestStatus(payload) {
 
 async function resolveRequest(payload, targetStatus, action) {
   const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
+  const requesterUserId =
+    typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
   const requestId =
     typeof payload?.request_id === 'string' ? payload.request_id.trim() : '';
+
+  if (requesterUserId && requesterUserId !== userId) {
+    throw createError("Accès interdit pour cette action d'authentification", 403, 'FORBIDDEN');
+  }
 
   const { request, link } = await validateRequestOwnershipForUser(userId, requestId);
   await enforceRateLimitForResolveUser(userId);
