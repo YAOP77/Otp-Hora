@@ -155,7 +155,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone_number\": \"+33600000000\",\n  \"pin\": \"123456\"\n}"
+              "raw": "{\n  \"phone\": \"0173243248\",\n  \"PIN\": \"059707\"\n}"
             },
             "url": "{{base_url}}/users/login",
             "description": "Connexion flexible OTP Hora via contact + code PIN. Retourne `access_token` et `refresh_token`."

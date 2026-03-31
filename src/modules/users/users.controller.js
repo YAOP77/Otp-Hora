@@ -19,8 +19,8 @@ async function createUser(req, res, next) {
 async function loginUser(req, res, next) {
   try {
     const result = await usersService.loginUser({
-      phone_number: req.body?.phone_number,
-      pin: req.body?.pin,
+      phone_number: req.body?.phone_number ?? req.body?.phone ?? req.body?.contact,
+      pin: req.body?.pin ?? req.body?.PIN ?? req.body?.code_pin,
     });
     return res.status(200).json({
       data: result.user,
