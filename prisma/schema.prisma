@@ -11,6 +11,7 @@ model users {
   nom      String
   prenom   String
   pin_hash String
+  token_version Int @default(0)
   status   String
 
   user_contacts    user_contacts[]

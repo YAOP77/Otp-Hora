@@ -166,9 +166,13 @@ Référence détaillée : `PROJECT_SPEC.md`.
 
 - **Utilisateur (OTP Hora) — côté application OTP Hora**  
   Appels réalisés par l’utilisateur (dans cette V1 API, sans `x-api-key`).
-  - `POST /api/users` : inscription (nom, prénom, PIN)
+  - `POST /api/users` : inscription (nom, prénom, PIN) + émission `access_token` / `refresh_token`
+  - `POST /api/users/login` : connexion flexible (phone + PIN)
   - `POST /api/users/refresh-token` : renouveler les tokens utilisateur via `refresh_token`
+  - `POST /api/users/logout` : déconnexion (protégée)
   - `GET /api/users/:user_id` : lire le profil OTP Hora (contacts + comptes liés), protégé par bearer token
+  - `PATCH /api/users/:user_id` : modifier `nom` et/ou `pin` (protégée, self only)
+  - `DELETE /api/users/:user_id` : supprimer son compte (protégée, self only)
   - `POST /api/contacts` : ajouter téléphone
   - `POST /api/devices` : enregistrer appareil
   - `POST /api/recovery` : méthode de récupération
@@ -187,8 +191,12 @@ Référence détaillée : `PROJECT_SPEC.md`.
 | `GET` | `/api/health` | Vérifie que l’API est disponible |
 | `POST` | `/api/enterprises` | Inscrit une entreprise, génère sa clé API, statut initial `valider` (V1, futur: `attente`) |
 | `POST` | `/api/users` | Inscription : `nom`, `prenom`, `pin` (4–6 chiffres) → `user_id` ; PIN hashé en base — **sans** clé entreprise (V1 : pas de biométrie API) |
+| `POST` | `/api/users/login` | Connexion utilisateur OTP Hora via `phone_number` + `pin` (renvoie tokens) |
 | `POST` | `/api/users/refresh-token` | Renouvelle `access_token` + `refresh_token` utilisateur |
+| `POST` | `/api/users/logout` | Déconnexion utilisateur (invalidation serveur des tokens via session version) |
 | `GET` | `/api/users/:user_id` | Profil utilisateur OTP Hora : nom, prénom, contacts, comptes liés (nombre + liste). `?include_pin_hash=true` pour afficher `pin_hash` |
+| `PATCH` | `/api/users/:user_id` | Modifie `nom` et/ou `pin` (route protégée, utilisateur propriétaire) |
+| `DELETE` | `/api/users/:user_id` | Supprime son compte OTP Hora (route protégée, utilisateur propriétaire) |
 | `POST` | `/api/contacts` | Contact téléphone — **sans** clé entreprise |
 | `POST` | `/api/devices` | Appareil — **sans** clé entreprise |
 | `POST` | `/api/recovery` | Méthode de récupération — **sans** clé entreprise |
@@ -243,7 +251,7 @@ Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collectio
 
 1. Importer la collection dans Postman.  
 2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises`).  
-3. Enchaîner : utilisateur OTP Hora → `GET /users/:user_id` (vérification profil) → contacts/devices/recovery → `POST /links` (entreprise) → `POST /links/confirm` → `auth/request` → approve/reject (utilisateur) → statut / events (entreprise).
+3. Enchaîner : `POST /users` (tokens) ou `POST /users/login` → `GET /users/:user_id` (vérification profil) → contacts/devices/recovery → `POST /links` (entreprise) → `POST /links/confirm` → `auth/request` → approve/reject (utilisateur) → statut / events (entreprise).
 
 ---
 

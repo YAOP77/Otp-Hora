@@ -208,6 +208,11 @@ GET /auth/status/:request_id
 POST /users  
 → crée l’identité OTP Hora (`nom`, `prenom`, `pin`)  
 → `pin` stocké uniquement en hash (`pin_hash`)
+→ retourne `access_token` + `refresh_token`
+
+POST /users/login
+→ connexion flexible via `phone_number` + `pin`
+→ retourne `access_token` + `refresh_token`
 
 GET /users/:user_id  
 → retourne les informations utilisateur OTP Hora :
@@ -220,6 +225,18 @@ GET /users/:user_id
 
 POST /users/refresh-token
 → renouvelle `access_token` + `refresh_token` utilisateur
+
+POST /users/logout
+→ route protégée utilisateur
+→ invalide les tokens actifs de la session (rotation serveur)
+
+PATCH /users/:user_id
+→ route protégée utilisateur (propriétaire uniquement)
+→ modifie `nom` et/ou `pin`
+
+DELETE /users/:user_id
+→ route protégée utilisateur (propriétaire uniquement)
+→ supprime le compte utilisateur
 
 POST /contacts  
 → ajoute le téléphone de l’utilisateur

@@ -16,6 +16,21 @@ async function createUser(req, res, next) {
   }
 }
 
+async function loginUser(req, res, next) {
+  try {
+    const result = await usersService.loginUser({
+      phone_number: req.body?.phone_number,
+      pin: req.body?.pin,
+    });
+    return res.status(200).json({
+      data: result.user,
+      auth: result.auth,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function getUserProfile(req, res, next) {
   try {
     const user = await usersService.getUserProfile({
@@ -44,8 +59,55 @@ async function refreshUserToken(req, res, next) {
   }
 }
 
+async function logoutUser(req, res, next) {
+  try {
+    const result = await usersService.logoutUser({
+      requester_user_id: req.userAuth?.user_id,
+    });
+    return res.status(200).json({
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function updateUser(req, res, next) {
+  try {
+    const user = await usersService.updateUser({
+      user_id: req.params?.user_id,
+      requester_user_id: req.userAuth?.user_id,
+      nom: req.body?.nom,
+      pin: req.body?.pin,
+    });
+    return res.status(200).json({
+      data: user,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteUser(req, res, next) {
+  try {
+    const result = await usersService.deleteUser({
+      user_id: req.params?.user_id,
+      requester_user_id: req.userAuth?.user_id,
+    });
+    return res.status(200).json({
+      data: result,
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createUser,
+  loginUser,
   getUserProfile,
   refreshUserToken,
+  logoutUser,
+  updateUser,
+  deleteUser,
 };
