@@ -8,6 +8,12 @@ router.post('/users', usersController.createUser);
 router.post('/users/login', usersController.loginUser);
 router.post('/users/session/unlock', usersController.unlockUserSession);
 router.post('/users/refresh-token', usersController.refreshUserToken);
+router.put(
+  '/users/me/recovery-email',
+  requireUserAccessToken,
+  usersController.setRecoveryEmail,
+);
+router.post('/users/email/verify', usersController.verifyRecoveryEmail);
 router.get('/users/me/login-history', requireUserAccessToken, usersController.listUserLoginHistory);
 router.post('/users/logout', requireUserAccessToken, usersController.logoutUser);
 router.get('/users/:user_id', requireUserAccessToken, usersController.getUserProfile);

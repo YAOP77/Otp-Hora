@@ -12,9 +12,64 @@ async function createEnterprise(data) {
   });
 }
 
+function notDeletedWhere() {
+  return { deleted_at: null };
+}
+
 async function findEnterpriseByIdForAuth(companyId) {
-  return prisma.enterprise_accounts.findUnique({
-    where: { company_id: companyId },
+  return prisma.enterprise_accounts.findFirst({
+    where: {
+      company_id: companyId,
+      ...notDeletedWhere(),
+    },
+    select: {
+      company_id: true,
+      nom_entreprise: true,
+      api_key: true,
+      status: true,
+      token_version: true,
+      phone_e164: true,
+      pin_hash: true,
+      email: true,
+      email_verified_at: true,
+    },
+  });
+}
+
+async function findEnterpriseForPinRecoveryByPhone(phoneE164) {
+  return prisma.enterprise_accounts.findFirst({
+    where: {
+      phone_e164: phoneE164,
+      deleted_at: null,
+      pin_hash: { not: null },
+      status: { in: ['active', 'valider'] },
+    },
+    select: {
+      company_id: true,
+      email: true,
+      email_verified_at: true,
+      status: true,
+    },
+  });
+}
+
+async function findEnterpriseByEmailExcluding(emailNormalized, excludeCompanyId) {
+  return prisma.enterprise_accounts.findFirst({
+    where: {
+      email: emailNormalized,
+      company_id: { not: excludeCompanyId },
+      deleted_at: null,
+    },
+    select: { company_id: true },
+  });
+}
+
+async function findEnterpriseByPhoneE164(phoneE164) {
+  return prisma.enterprise_accounts.findFirst({
+    where: {
+      phone_e164: phoneE164,
+      ...notDeletedWhere(),
+    },
     select: {
       company_id: true,
       nom_entreprise: true,
@@ -27,24 +82,21 @@ async function findEnterpriseByIdForAuth(companyId) {
   });
 }
 
-async function findEnterpriseByPhoneE164(phoneE164) {
-  return prisma.enterprise_accounts.findUnique({
-    where: { phone_e164: phoneE164 },
-    select: {
-      company_id: true,
-      nom_entreprise: true,
-      api_key: true,
-      status: true,
-      token_version: true,
-      phone_e164: true,
-      pin_hash: true,
+async function findAnotherEnterpriseByPhoneE164(phoneE164, excludeCompanyId) {
+  return prisma.enterprise_accounts.findFirst({
+    where: {
+      phone_e164: phoneE164,
+      company_id: { not: excludeCompanyId },
+      ...notDeletedWhere(),
     },
+    select: { company_id: true },
   });
 }
 
 async function findActiveEnterprises() {
   return prisma.enterprise_accounts.findMany({
     where: {
+      ...notDeletedWhere(),
       status: {
         in: ['active', 'valider'],
       },
@@ -82,8 +134,49 @@ async function updateEnterpriseById(companyId, data) {
       nom_entreprise: true,
       status: true,
       phone_e164: true,
+      email: true,
+      email_verified_at: true,
     },
   });
+}
+
+async function updateEnterprisePinAndRotateSession(companyId, pin_hash) {
+  return prisma.enterprise_accounts.update({
+    where: { company_id: companyId },
+    data: {
+      pin_hash,
+      token_version: { increment: 1 },
+    },
+    select: {
+      company_id: true,
+      token_version: true,
+    },
+  });
+}
+
+async function softDeleteEnterprise(companyId) {
+  return prisma.$transaction([
+    prisma.identity_links.updateMany({
+      where: {
+        company_id: companyId,
+        status: { in: ['pending', 'active'] },
+      },
+      data: { status: 'revoked' },
+    }),
+    prisma.enterprise_accounts.update({
+      where: { company_id: companyId },
+      data: {
+        deleted_at: new Date(),
+        status: 'deleted',
+        token_version: { increment: 1 },
+      },
+      select: {
+        company_id: true,
+        status: true,
+        deleted_at: true,
+      },
+    }),
+  ]);
 }
 
 async function findLinkedUsersForCompany(companyId) {
@@ -197,10 +290,15 @@ async function listEnterpriseLoginHistory(companyId, limit) {
 module.exports = {
   createEnterprise,
   findEnterpriseByIdForAuth,
+  findEnterpriseForPinRecoveryByPhone,
+  findEnterpriseByEmailExcluding,
   findEnterpriseByPhoneE164,
+  findAnotherEnterpriseByPhoneE164,
   findActiveEnterprises,
   updateEnterpriseTokenVersion,
   updateEnterpriseById,
+  updateEnterprisePinAndRotateSession,
+  softDeleteEnterprise,
   findLinkedUsersForCompany,
   listEnterpriseDevices,
   upsertEnterpriseDevice,

@@ -1,19 +1,11 @@
 const enterpriseService = require('./enterprise.service');
 const { getDeviceMeta } = require('../../common/requestDeviceMeta');
-
-async function createEnterprise(req, res, next) {
-  try {
-    const enterprise = await enterpriseService.createEnterprise({
-      nom_entreprise: req.body?.nom_entreprise,
-    });
-
-    return res.status(201).json({
-      data: enterprise,
-    });
-  } catch (error) {
-    return next(error);
-  }
-}
+const {
+  validate,
+  enterpriseDeleteSchema,
+  recoveryEmailSchema,
+  emailVerifySchema,
+} = require('../../common/validators');
 
 async function registerEnterprise(req, res, next) {
   try {
@@ -93,9 +85,49 @@ async function patchEnterpriseMe(req, res, next) {
     const updated = await enterpriseService.updateEnterpriseAccount({
       company_id: req.companyAuth.company_id,
       nom_entreprise: req.body?.nom_entreprise ?? req.body?.nom,
+      phone: req.body?.phone,
+      phone_number: req.body?.phone_number,
       pin: req.body?.pin,
+      email: req.body?.email,
+      recovery_email: req.body?.recovery_email,
     });
     return res.status(200).json({ data: updated });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function setEnterpriseRecoveryEmail(req, res, next) {
+  try {
+    const body = validate(recoveryEmailSchema, req.body);
+    const data = await enterpriseService.setEnterpriseRecoveryEmail({
+      company_id: req.companyAuth.company_id,
+      email: body.email,
+    });
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function verifyEnterpriseEmail(req, res, next) {
+  try {
+    const body = validate(emailVerifySchema, req.body);
+    const data = await enterpriseService.verifyEnterpriseRecoveryEmail({ token: body.token });
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteEnterpriseMe(req, res, next) {
+  try {
+    const body = validate(enterpriseDeleteSchema, req.body);
+    const data = await enterpriseService.deleteEnterpriseAccount({
+      company_id: req.companyAuth.company_id,
+      pin: body.pin,
+    });
+    return res.status(200).json({ data });
   } catch (error) {
     return next(error);
   }
@@ -155,13 +187,15 @@ async function listEnterpriseLoginHistory(req, res, next) {
 }
 
 module.exports = {
-  createEnterprise,
   registerEnterprise,
   loginEnterprise,
   refreshEnterpriseToken,
   unlockEnterpriseSession,
   getEnterpriseMe,
   patchEnterpriseMe,
+  setEnterpriseRecoveryEmail,
+  verifyEnterpriseEmail,
+  deleteEnterpriseMe,
   logoutEnterprise,
   listEnterpriseDevices,
   registerEnterpriseDevice,

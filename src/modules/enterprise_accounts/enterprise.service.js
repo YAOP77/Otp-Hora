@@ -9,6 +9,14 @@ const {
   signCompanyRefreshToken,
   verifyCompanyRefreshToken,
 } = require('../../common/userTokenAuth');
+const {
+  signEnterpriseEmailVerificationToken,
+  verifyEnterpriseEmailVerificationToken,
+} = require('../../common/emailTokenAuth');
+const {
+  sendEmailVerification,
+  buildEnterpriseVerifyEmailUrl,
+} = require('../../common/emailService');
 
 const PIN_REGEX = /^\d{4,6}$/;
 const LOGIN_HISTORY_LIMIT = 5;
@@ -25,30 +33,9 @@ function validatePin(pin) {
   }
 }
 
-async function createEnterprise(payload) {
-  const nomEntreprise =
-    typeof payload?.nom_entreprise === 'string' ? payload.nom_entreprise.trim() : '';
-
-  if (!nomEntreprise) {
-    const error = new Error('Le champ nom_entreprise est obligatoire');
-    error.statusCode = 400;
-    throw error;
-  }
-
-  const rawApiKey = generateApiKey();
-  const hashedApiKey = await bcrypt.hash(rawApiKey, 12);
-
-  const enterprise = await enterpriseRepository.createEnterprise({
-    company_id: randomUUID(),
-    nom_entreprise: nomEntreprise,
-    api_key: hashedApiKey,
-    status: 'valider',
-  });
-
-  return {
-    ...enterprise,
-    api_key: rawApiKey,
-  };
+function normalizeEmail(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().toLowerCase();
 }
 
 async function registerEnterprise(payload) {
@@ -263,6 +250,8 @@ async function getEnterpriseProfile(companyId) {
     nom_entreprise: enterprise.nom_entreprise,
     status: enterprise.status,
     phone_e164: enterprise.phone_e164,
+    email: enterprise.email,
+    email_verified: Boolean(enterprise.email_verified_at),
     role: ROLES.COMPANY,
     devices,
     linked_users,
@@ -275,19 +264,47 @@ async function updateEnterpriseAccount(payload) {
     typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
   const nom_entreprise =
     typeof payload?.nom_entreprise === 'string' ? payload.nom_entreprise.trim() : '';
+  const nom = typeof payload?.nom === 'string' ? payload.nom.trim() : '';
   const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const phoneRaw =
+    payload?.phone !== undefined
+      ? payload.phone
+      : payload?.phone_number !== undefined
+        ? payload.phone_number
+        : undefined;
 
   if (!companyId) {
     throw createError('company_id manquant', 400, 'INVALID_INPUT');
   }
 
+  if (payload?.email !== undefined || payload?.recovery_email !== undefined) {
+    throw createError(
+      "L'email doit être géré via PUT /enterprises/me/recovery-email",
+      400,
+      'USE_RECOVERY_EMAIL_ENDPOINT',
+    );
+  }
+
   const data = {};
-  if (nom_entreprise) {
-    data.nom_entreprise = nom_entreprise;
+  const name = nom_entreprise || nom;
+  if (name) {
+    data.nom_entreprise = name;
   }
   if (pin) {
     validatePin(pin);
     data.pin_hash = await bcrypt.hash(pin, 12);
+  }
+
+  if (phoneRaw !== undefined && phoneRaw !== null && String(phoneRaw).trim() !== '') {
+    const phone_e164 = normalizeToE164(String(phoneRaw));
+    const conflict = await enterpriseRepository.findAnotherEnterpriseByPhoneE164(
+      phone_e164,
+      companyId,
+    );
+    if (conflict) {
+      throw createError('Ce numéro de téléphone est déjà utilisé', 409, 'PHONE_ALREADY_REGISTERED');
+    }
+    data.phone_e164 = phone_e164;
   }
 
   if (Object.keys(data).length === 0) {
@@ -299,6 +316,35 @@ async function updateEnterpriseAccount(payload) {
   } catch {
     throw createError('Entreprise introuvable', 404, 'COMPANY_NOT_FOUND');
   }
+}
+
+async function deleteEnterpriseAccount(payload) {
+  const companyId =
+    typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+
+  if (!companyId) {
+    throw createError('company_id manquant', 400, 'INVALID_INPUT');
+  }
+  validatePin(pin);
+
+  const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(companyId);
+  if (!enterprise || !enterprise.pin_hash) {
+    throw createError('Entreprise introuvable', 404, 'COMPANY_NOT_FOUND');
+  }
+
+  const ok = await bcrypt.compare(pin, enterprise.pin_hash);
+  if (!ok) {
+    throw createError('PIN incorrect', 401, 'INVALID_PIN');
+  }
+
+  await enterpriseRepository.softDeleteEnterprise(companyId);
+
+  return {
+    message: 'Compte entreprise désactivé. Les liaisons actives ont été révoquées.',
+    company_id: companyId,
+    deleted: true,
+  };
 }
 
 async function logoutEnterprise(companyId) {
@@ -338,15 +384,93 @@ async function listEnterpriseLoginHistory(companyId) {
   }));
 }
 
+async function setEnterpriseRecoveryEmail(payload) {
+  const companyId =
+    typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
+  const emailRaw = typeof payload?.email === 'string' ? payload.email : '';
+
+  if (!companyId) {
+    throw createError('company_id manquant', 401, 'UNAUTHORIZED');
+  }
+
+  const email = normalizeEmail(emailRaw);
+  if (!email) {
+    throw createError('Email invalide', 400, 'INVALID_EMAIL');
+  }
+
+  const other = await enterpriseRepository.findEnterpriseByEmailExcluding(email, companyId);
+  if (other) {
+    throw createError('Cet email est déjà utilisé', 409, 'EMAIL_ALREADY_REGISTERED');
+  }
+
+  await enterpriseRepository.updateEnterpriseById(companyId, {
+    email,
+    email_verified_at: null,
+  });
+
+  const token = signEnterpriseEmailVerificationToken(companyId, email);
+  const verifyUrl = buildEnterpriseVerifyEmailUrl(token);
+  await sendEmailVerification({ to: email, verifyUrl });
+
+  return {
+    message:
+      'Un email de vérification a été envoyé (simulation en développement : voir les logs serveur).',
+    email,
+    email_verified: false,
+  };
+}
+
+async function verifyEnterpriseRecoveryEmail(payload) {
+  const token =
+    typeof payload?.token === 'string' ? payload.token.trim() : '';
+
+  if (!token) {
+    throw createError('Le champ token est obligatoire', 400, 'INVALID_INPUT');
+  }
+
+  const decoded = verifyEnterpriseEmailVerificationToken(token);
+  const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(decoded.sub);
+
+  if (!enterprise || (enterprise.status !== 'active' && enterprise.status !== 'valider')) {
+    throw createError('Entreprise introuvable', 404, 'COMPANY_NOT_FOUND');
+  }
+
+  const tokenEmail = normalizeEmail(decoded.email);
+  if (!enterprise.email || normalizeEmail(enterprise.email) !== tokenEmail) {
+    throw createError('Token incompatible avec le compte', 400, 'EMAIL_TOKEN_MISMATCH');
+  }
+
+  if (enterprise.email_verified_at) {
+    return {
+      message: 'Cet email est déjà vérifié.',
+      email: enterprise.email,
+      email_verified: true,
+    };
+  }
+
+  await enterpriseRepository.updateEnterpriseById(enterprise.company_id, {
+    email_verified_at: new Date(),
+  });
+
+  return {
+    message:
+      'Email vérifié. Vous pouvez utiliser la réinitialisation du PIN entreprise si besoin.',
+    email: enterprise.email,
+    email_verified: true,
+  };
+}
+
 module.exports = {
-  createEnterprise,
   registerEnterprise,
   loginEnterprise,
   refreshEnterpriseToken,
   unlockEnterpriseSession,
   getEnterpriseProfile,
   updateEnterpriseAccount,
+  deleteEnterpriseAccount,
   logoutEnterprise,
   registerEnterpriseDevice,
   listEnterpriseLoginHistory,
+  setEnterpriseRecoveryEmail,
+  verifyEnterpriseRecoveryEmail,
 };

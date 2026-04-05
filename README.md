@@ -77,6 +77,10 @@ Variables principales (voir aussi `.env.example`) :
 | `USER_REFRESH_TOKEN_SECRET` | Secret de signature JWT refresh token utilisateur |
 | `USER_ACCESS_TOKEN_TTL_SECONDS` | Durée de vie access token utilisateur (sec) |
 | `USER_REFRESH_TOKEN_TTL_SECONDS` | Durée de vie refresh token utilisateur (sec) |
+| `EMAIL_VERIFICATION_SECRET` | Secret JWT pour les liens de vérification d’email |
+| `EMAIL_VERIFICATION_TTL_SECONDS` | Durée de validité du lien de vérification d’email |
+| `PIN_RESET_TOKEN_TTL_MINUTES` | Durée de validité du token de réinitialisation PIN (défaut 15) |
+| `PUBLIC_APP_URL` | Base URL utilisée dans les liens des emails (mock / production) |
 
 > **Ne jamais commiter le fichier `.env`** : il est listé dans `.gitignore`.
 
@@ -110,7 +114,7 @@ En développement (création d’une nouvelle migration) :
 npx prisma migrate dev
 ```
 
-**Entreprise** : `POST /api/enterprises` (legacy, nom seul) ou **`POST /api/enterprises/register`** (nom + téléphone international + PIN) génère une `api_key` B2B renvoyée **une seule fois** en clair et, pour l’inscription complète, des **JWT entreprise** (`access_token` / `refresh_token`). Les routes partenaires (`/links`, `/auth/*` côté serveur) acceptent **`x-api-key` ou `Authorization: Bearer`** avec un token **entreprise**.
+**Entreprise** : **`POST /api/enterprises/register`** (nom + téléphone international + PIN) génère une `api_key` B2B renvoyée **une seule fois** en clair et des **JWT entreprise**. Les routes partenaires (`/links`, `/auth/*` côté serveur) acceptent **`x-api-key` ou `Authorization: Bearer`** avec un token **entreprise**. Compte fermé : **`DELETE /api/enterprises/me`** (PIN) → suppression logique, liens révoqués.
 
 ---
 
@@ -138,10 +142,10 @@ Réponse : texte indiquant que l’API est en ligne.
 
 Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
 
-- **Identité OTP Hora** : `POST /api/users` (inscription + émission tokens `role: user`), `POST /api/users/refresh-token`, `POST /api/users/session/unlock` (PIN + refresh pour réouverture session), `POST /api/contacts`, **`POST /api/devices` (Bearer obligatoire)**, `POST /api/recovery` — sans `x-api-key` entreprise.
+- **Identité OTP Hora** : `POST /api/users` (inscription + émission tokens `role: user` ; pas d’email à l’inscription), `PUT /api/users/me/recovery-email` (email de récupération, authentifié), `POST /api/users/email/verify` (lien de vérification), `POST /api/users/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `POST /api/users/refresh-token`, `POST /api/users/session/unlock`, `POST /api/contacts`, **`POST /api/devices` (Bearer obligatoire)** — sans `x-api-key` entreprise.
 - **Routes utilisateur sensibles** : `GET /api/users/:user_id`, `GET /api/users/me/login-history`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — protégées par `Authorization: Bearer <access_token>`.
-- **Compte entreprise (application)** : `POST /api/enterprises/register`, `POST /api/enterprises/login`, `GET|PATCH /api/enterprises/me`, `POST /api/enterprises/logout`, appareils et historique sous `/api/enterprises/me/...` — **Bearer** avec JWT **entreprise** (`role: company`).
-- **Partenaire entreprise (intégration serveur)** : sur `POST /api/links`, `POST /api/auth/request`, `GET /api/auth/status/:id`, `GET /api/auth/events/:id`, envoyer soit **`x-api-key`**, soit **`Authorization: Bearer`** avec un **access token entreprise** (même droits métier pour la société authentifiée). La clé API est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’à l’inscription** (`POST /enterprises` ou `/enterprises/register`).
+- **Compte entreprise (application)** : `POST /api/enterprises/register`, `POST /api/enterprises/login`, `PUT /api/enterprises/me/recovery-email`, `POST /api/enterprises/email/verify`, `POST /api/enterprises/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `GET|PATCH|DELETE /api/enterprises/me`, `POST /api/enterprises/logout`, appareils et historique sous `/api/enterprises/me/...` — **Bearer** avec JWT **entreprise** (`role: company`).
+- **Partenaire entreprise (intégration serveur)** : sur `POST /api/links`, `POST /api/auth/request`, `GET /api/auth/status/:id`, `GET /api/auth/events/:id`, envoyer soit **`x-api-key`**, soit **`Authorization: Bearer`** avec un **access token entreprise** (même droits métier pour la société authentifiée). La clé API est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’à l’inscription** (`POST /enterprises/register`).
 - Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé entreprise.
 
 ```http
@@ -190,27 +194,30 @@ Référence détaillée : `PROJECT_SPEC.md`.
   - `DELETE /api/users/:user_id` : supprimer son compte (protégée, self only)
   - `POST /api/contacts` : ajouter téléphone (normalisé E.164)
   - `POST /api/devices` : enregistrer appareil (**Bearer utilisateur obligatoire**)
-  - `POST /api/recovery` : méthode de récupération
+  - `PUT /api/users/me/recovery-email`, `POST /api/users/email/verify`, `POST /api/users/pin-recovery/*` : récupération de compte (voir `PROJECT_SPEC.md`)
   - `POST /api/links/confirm` : confirmer une liaison (associe `user_id` au `link_id`)
   - `POST /api/auth/approve/:request_id` : accepter une demande (corps : `user_id`)
   - `POST /api/auth/reject/:request_id` : refuser une demande (corps : `user_id`)
 
 - **OTP Hora (service)**  
   - `GET /api/health` : disponibilité du service
-  - `POST /api/enterprises` : onboarding partenaire legacy (génère `api_key` en clair une seule fois)
 
 ### Tableau récapitulatif
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
 | `GET` | `/api/health` | Vérifie que l’API est disponible |
-| `POST` | `/api/enterprises` | Onboarding legacy : `nom_entreprise` → `api_key` une fois, statut `valider` |
 | `POST` | `/api/enterprises/register` | Inscription entreprise : nom, téléphone (E.164), PIN → JWT + `api_key` |
 | `POST` | `/api/enterprises/login` | Connexion entreprise : téléphone + PIN → JWT |
 | `POST` | `/api/enterprises/refresh-token` | Renouvelle les tokens JWT entreprise |
 | `POST` | `/api/enterprises/session/unlock` | PIN + refresh token → nouveaux tokens (session verrouillée) |
-| `GET` | `/api/enterprises/me` | Profil entreprise, appareils, liens utilisateurs, historique connexions |
-| `PATCH` | `/api/enterprises/me` | Met à jour le compte entreprise (self) |
+| `GET` | `/api/enterprises/me` | Profil entreprise (`email`, `email_verified`), appareils, liens, historique |
+| `PUT` | `/api/enterprises/me/recovery-email` | Email de récupération entreprise (Bearer) |
+| `POST` | `/api/enterprises/email/verify` | Vérifie l’email entreprise (`token` JWT) |
+| `POST` | `/api/enterprises/pin-recovery/request` | Reset PIN par téléphone si email vérifié |
+| `POST` | `/api/enterprises/pin-recovery/confirm` | Confirme le nouveau PIN entreprise |
+| `PATCH` | `/api/enterprises/me` | Met à jour le compte entreprise (nom, téléphone E.164, PIN) — **pas** l’email direct |
+| `DELETE` | `/api/enterprises/me` | Suppression logique (body : `pin`) — liens `revoked`, tokens invalidés |
 | `POST` | `/api/enterprises/logout` | Déconnexion entreprise (invalidation JWT) |
 | `GET` | `/api/enterprises/me/login-history` | Historique connexions entreprise (max 5 entrées formatées) |
 | `POST` | `/api/users` | Inscription : `nom`, `prenom`, `pin` (4–6 chiffres) → `user_id` ; PIN hashé en base — **sans** clé entreprise (V1 : pas de biométrie API) |
@@ -218,13 +225,16 @@ Référence détaillée : `PROJECT_SPEC.md`.
 | `POST` | `/api/users/session/unlock` | `refresh_token` + PIN → nouveaux tokens utilisateur |
 | `POST` | `/api/users/refresh-token` | Renouvelle `access_token` + `refresh_token` utilisateur |
 | `POST` | `/api/users/logout` | Déconnexion utilisateur (invalidation serveur des tokens via session version) |
-| `GET` | `/api/users/:user_id` | Profil utilisateur OTP Hora : nom, prénom, rôle, contacts, appareils, comptes liés. `?include_pin_hash=true` pour `pin_hash` |
+| `GET` | `/api/users/:user_id` | Profil : nom, prénom, `email`, `email_verified`, contacts, appareils, comptes liés |
+| `PUT` | `/api/users/me/recovery-email` | Définit / modifie l’email de récupération (Bearer) — envoi lien de vérification (mock → logs) |
+| `POST` | `/api/users/email/verify` | Confirme l’email (`token` JWT du lien) |
+| `POST` | `/api/users/pin-recovery/request` | Demande reset PIN par téléphone (`contact`) si email vérifié |
+| `POST` | `/api/users/pin-recovery/confirm` | Nouveau PIN (`token` + `pin`) — usage unique |
 | `GET` | `/api/users/me/login-history` | Dernières connexions utilisateur (max 5) |
 | `PATCH` | `/api/users/:user_id` | Modifie `nom` et/ou `pin` (route protégée, utilisateur propriétaire) |
 | `DELETE` | `/api/users/:user_id` | Supprime son compte OTP Hora (route protégée, utilisateur propriétaire) |
 | `POST` | `/api/contacts` | Contact téléphone (E.164) — **sans** clé entreprise |
 | `POST` | `/api/devices` | Appareil — **Bearer utilisateur obligatoire** |
-| `POST` | `/api/recovery` | Méthode de récupération — **sans** clé entreprise |
 | `POST` | `/api/links` | NGONI demande une liaison (`external_ref`) → lien `pending` — **avec** `x-api-key` **ou Bearer entreprise** |
 | `POST` | `/api/links/confirm` | L’utilisateur valide : associe `user_id` au lien → `active` — **sans** clé entreprise |
 | `POST` | `/api/auth/request` | Crée une demande d’auth (lien **actif** requis) — **avec** `x-api-key` ou Bearer entreprise |
@@ -256,7 +266,7 @@ Les réponses JSON de succès suivent en général le format `{ "data": ... }`. 
 │       ├── identity_links/
 │       ├── auth_requests/
 │       ├── auth_events/
-│       ├── recovery_methods/
+│       ├── pin_recovery/
 │       ├── user_contacts/
 │       ├── user_devices/
 │       └── health/
@@ -275,7 +285,7 @@ Architecture cible par module : **controller** (HTTP) → **service** (règles m
 Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collection.json`.
 
 1. Importer la collection dans Postman.  
-2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises`).  
+2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises/register`).  
 3. Enchaîner : `POST /users` (tokens) ou `POST /users/login` → `GET /users/:user_id` → contacts → **`POST /devices` (Bearer)** → recovery → optionnel `POST /enterprises/register` (tokens entreprise dans les variables `company_*`) → `POST /links` avec `api_key` **ou** Bearer entreprise → `POST /links/confirm` → `auth/request` → approve/reject → statut / events.
 
 ---

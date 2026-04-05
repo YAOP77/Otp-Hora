@@ -9,8 +9,16 @@ router.post('/enterprises/login', enterpriseController.loginEnterprise);
 router.post('/enterprises/refresh-token', enterpriseController.refreshEnterpriseToken);
 router.post('/enterprises/session/unlock', enterpriseController.unlockEnterpriseSession);
 
+router.put(
+  '/enterprises/me/recovery-email',
+  requireCompanyAccessToken,
+  enterpriseController.setEnterpriseRecoveryEmail,
+);
+router.post('/enterprises/email/verify', enterpriseController.verifyEnterpriseEmail);
+
 router.get('/enterprises/me', requireCompanyAccessToken, enterpriseController.getEnterpriseMe);
 router.patch('/enterprises/me', requireCompanyAccessToken, enterpriseController.patchEnterpriseMe);
+router.delete('/enterprises/me', requireCompanyAccessToken, enterpriseController.deleteEnterpriseMe);
 router.post('/enterprises/logout', requireCompanyAccessToken, enterpriseController.logoutEnterprise);
 
 router.get(
@@ -33,8 +41,6 @@ router.get(
   requireCompanyAccessToken,
   enterpriseController.listEnterpriseLoginHistory,
 );
-
-router.post('/enterprises', enterpriseController.createEnterprise);
 
 module.exports = {
   enterpriseRouter: router,

@@ -1,5 +1,10 @@
 const usersService = require('./users.service');
 const { getDeviceMeta } = require('../../common/requestDeviceMeta');
+const {
+  validate,
+  recoveryEmailSchema,
+  emailVerifySchema,
+} = require('../../common/validators');
 
 async function createUser(req, res, next) {
   try {
@@ -100,6 +105,8 @@ async function updateUser(req, res, next) {
       requester_user_id: req.userAuth?.user_id,
       nom: req.body?.nom,
       pin: req.body?.pin,
+      email: req.body?.email,
+      recovery_email: req.body?.recovery_email,
     });
     return res.status(200).json({
       data: user,
@@ -134,6 +141,29 @@ async function listUserLoginHistory(req, res, next) {
   }
 }
 
+async function setRecoveryEmail(req, res, next) {
+  try {
+    const body = validate(recoveryEmailSchema, req.body);
+    const data = await usersService.setRecoveryEmail({
+      requester_user_id: req.userAuth.user_id,
+      email: body.email,
+    });
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function verifyRecoveryEmail(req, res, next) {
+  try {
+    const body = validate(emailVerifySchema, req.body);
+    const data = await usersService.verifyRecoveryEmail({ token: body.token });
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   createUser,
   loginUser,
@@ -144,4 +174,6 @@ module.exports = {
   updateUser,
   deleteUser,
   listUserLoginHistory,
+  setRecoveryEmail,
+  verifyRecoveryEmail,
 };

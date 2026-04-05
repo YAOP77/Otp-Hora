@@ -9,6 +9,14 @@ const {
   signUserRefreshToken,
   verifyUserRefreshToken,
 } = require('../../common/userTokenAuth');
+const {
+  signEmailVerificationToken,
+  verifyEmailVerificationToken,
+} = require('../../common/emailTokenAuth');
+const {
+  sendEmailVerification,
+  buildVerifyEmailUrl,
+} = require('../../common/emailService');
 
 const PIN_REGEX = /^\d{4,6}$/;
 const UUID_REGEX =
@@ -21,6 +29,11 @@ function validatePin(pin) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+function normalizeEmail(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.trim().toLowerCase();
 }
 
 async function recordUserLogin(userId, deviceMeta) {
@@ -193,6 +206,8 @@ async function getUserProfile(payload) {
     prenom: user.prenom,
     status: user.status,
     role: user.role || ROLES.USER,
+    email: user.email,
+    email_verified: Boolean(user.email_verified_at),
     contacts: user.user_contacts,
     devices: user.user_devices,
     linked_accounts_count: linkedAccounts.length,
@@ -253,6 +268,14 @@ async function updateUser(payload) {
 
   if (!requesterUserId || requesterUserId !== userId) {
     throw createError('Accès interdit à cette ressource', 403, 'FORBIDDEN');
+  }
+
+  if (payload?.email !== undefined || payload?.recovery_email !== undefined) {
+    throw createError(
+      "L'email doit être géré via PUT /users/me/recovery-email",
+      400,
+      'USE_RECOVERY_EMAIL_ENDPOINT',
+    );
   }
 
   const data = {};
@@ -316,6 +339,80 @@ async function listUserLoginHistory(userId) {
   }));
 }
 
+async function setRecoveryEmail(payload) {
+  const requesterUserId =
+    typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
+  const emailRaw = typeof payload?.email === 'string' ? payload.email : '';
+
+  if (!requesterUserId || !UUID_REGEX.test(requesterUserId)) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+
+  const email = normalizeEmail(emailRaw);
+  if (!email) {
+    throw createError('Email invalide', 400, 'INVALID_EMAIL');
+  }
+
+  const other = await usersRepository.findUserByEmailForUniqueness(email);
+  if (other && other.user_id !== requesterUserId) {
+    throw createError('Cet email est déjà utilisé', 409, 'EMAIL_ALREADY_REGISTERED');
+  }
+
+  await usersRepository.updateUserById(requesterUserId, {
+    email,
+    email_verified_at: null,
+  });
+
+  const token = signEmailVerificationToken(requesterUserId, email);
+  const verifyUrl = buildVerifyEmailUrl(token);
+  await sendEmailVerification({ to: email, verifyUrl });
+
+  return {
+    message:
+      'Un email de vérification a été envoyé (simulation en développement : voir les logs serveur).',
+    email,
+    email_verified: false,
+  };
+}
+
+async function verifyRecoveryEmail(payload) {
+  const token =
+    typeof payload?.token === 'string' ? payload.token.trim() : '';
+
+  if (!token) {
+    throw createError('Le champ token est obligatoire', 400, 'INVALID_INPUT');
+  }
+
+  const decoded = verifyEmailVerificationToken(token);
+  const user = await usersRepository.findUserById(decoded.sub);
+  if (!user || user.status !== 'active') {
+    throw createError('Utilisateur introuvable', 404, 'USER_NOT_FOUND');
+  }
+
+  const tokenEmail = normalizeEmail(decoded.email);
+  if (!user.email || normalizeEmail(user.email) !== tokenEmail) {
+    throw createError('Token incompatible avec le compte', 400, 'EMAIL_TOKEN_MISMATCH');
+  }
+
+  if (user.email_verified_at) {
+    return {
+      message: 'Cet email est déjà vérifié.',
+      email: user.email,
+      email_verified: true,
+    };
+  }
+
+  await usersRepository.updateUserById(user.user_id, {
+    email_verified_at: new Date(),
+  });
+
+  return {
+    message: 'Email vérifié. Vous pouvez utiliser la réinitialisation du PIN si besoin.',
+    email: user.email,
+    email_verified: true,
+  };
+}
+
 module.exports = {
   createUser,
   loginUser,
@@ -326,4 +423,6 @@ module.exports = {
   updateUser,
   deleteUser,
   listUserLoginHistory,
+  setRecoveryEmail,
+  verifyRecoveryEmail,
 };

@@ -143,6 +143,8 @@ IMPORTANT :
 - token_version (invalidation logout / rotation)
 - statut
 - role (`user` | valeurs réservées ; défaut `user`)
+- email (nullable, unique si renseigné — **pas** à l’inscription ; défini via `PUT /users/me/recovery-email`)
+- email_verified_at (nullable ; la réinitialisation PIN par email n’est possible **qu’avec email vérifié**)
 
 ### user_contacts
 - contact_id
@@ -168,9 +170,11 @@ IMPORTANT :
 - nom_entreprise
 - api_key (hash bcrypt — usage intégration serveur B2B)
 - status
-- phone_e164 (optionnel pour comptes **legacy** uniquement `api_key` ; obligatoire pour login appli entreprise)
-- pin_hash (optionnel ; hash bcrypt si téléphone + PIN activés)
+- phone_e164 (obligatoire pour login appli entreprise après `POST /enterprises/register`)
+- pin_hash (hash bcrypt si téléphone + PIN activés)
 - token_version (invalidation logout entreprise)
+- deleted_at (suppression **logique** ; entreprise exclue des auth et intégrations)
+- email, email_verified_at (récupération PIN ; définition via **PUT /enterprises/me/recovery-email** uniquement)
 
 ### enterprise_devices
 - device_id
@@ -184,12 +188,24 @@ IMPORTANT :
 - device_name, user_agent
 - connected_at
 
+### pin_reset_tokens
+- reset_id
+- user_id
+- token_hash (SHA-256 du jeton brut — usage unique, expiration)
+- expires_at, used_at
+
+### enterprise_pin_reset_tokens
+- reset_id
+- company_id
+- token_hash
+- expires_at, used_at
+
 ### identity_links
 - link_id
 - company_id
 - user_id
 - external_ref
-- status
+- status (ex. `pending`, `active`, `revoked` si entreprise supprimée)
 
 ### auth_requests
 - request_id
@@ -203,11 +219,7 @@ IMPORTANT :
 - action
 - created_at
 
-### recovery_methods
-- recovery_id
-- user_id
-- method_type
-- status
+### recovery_methods (schéma existant — non exposé par une route publique V2)
 
 ---
 
@@ -217,7 +229,7 @@ IMPORTANT :
 
 Les routes consommées par le **backend partenaire** (`POST /links`, `POST /auth/request`, `GET /auth/status/:request_id`, `GET /auth/events/:request_id`) acceptent :
 
-- **`x-api-key`** : clé API hashée (onboarding `POST /enterprises` ou `POST /enterprises/register`), **ou**
+- **`x-api-key`** : clé API hashée (onboarding `POST /enterprises/register`), **ou**
 - **`Authorization: Bearer <access_token>`** : JWT émis pour le rôle **`company`** (`POST /enterprises/login` / inscription entreprise).
 
 POST /auth/request  
@@ -236,12 +248,34 @@ GET /auth/status/:request_id
 - **POST /enterprises/login** : téléphone + `pin` → JWT entreprise.
 - **POST /enterprises/refresh-token** : refresh token entreprise uniquement.
 - **POST /enterprises/session/unlock** : `refresh_token` + `pin` → nouveaux tokens (retour utilisateur sans refaire saisie téléphone complète).
-- **GET /PATCH /enterprises/me**, **POST /enterprises/logout** : profil, mise à jour (`nom_entreprise`, `pin`), déconnexion (incrément `token_version`).
+- **GET /PATCH /enterprises/me**, **DELETE /enterprises/me** (corps : `pin`) : profil, mise à jour (`nom_entreprise`, `phone`/`phone_number` E.164, `pin`), suppression logique (`deleted_at`, statut `deleted`, liens passés en `revoked`, invalidation JWT).
+- **POST /enterprises/logout** : déconnexion (incrément `token_version`).
 - **GET /enterprises/me/devices**, **POST /enterprises/me/devices** : liste / enregistrement d’appareils (Bearer entreprise).
 - **GET /enterprises/me/linked-users** ou agrégat dans **GET /enterprises/me** : utilisateurs liés (`identity_links` actifs).
 - **GET /enterprises/me/login-history** : jusqu’à **5** dernières connexions avec libellé lisible (FR).
+- **PUT /enterprises/me/recovery-email**, **POST /enterprises/email/verify**, **POST /enterprises/pin-recovery/request|confirm** : voir section « Récupération de compte » (entreprise).
 
-**Legacy** : **POST /enterprises** (nom seul) génère uniquement une `api_key` ; pas de login téléphone sans migration ultérieure.
+---
+
+## RÉCUPÉRATION DE COMPTE (PIN OUBLIÉ)
+
+Règle **stricte** : sans **email vérifié** (`email_verified_at`), **aucune** réinitialisation de PIN par ce flux (anti-fraude : pas de reset après simple ajout d’email non prouvé).
+
+### Utilisateur OTP Hora
+
+1. **PUT /users/me/recovery-email** (Bearer) : enregistre l’email, envoie un lien de vérification (JWT, mock → logs serveur en dev).
+2. **POST /users/email/verify** : `token` → positionne `email_verified_at`.
+3. **POST /users/pin-recovery/request** : `contact` (téléphone E.164) → si compte avec email vérifié, envoi d’un lien de reset (`pin_reset_tokens`, TTL configurable, usage unique).
+4. **POST /users/pin-recovery/confirm** : `token` + nouveau `pin` → mise à jour `pin_hash`, rotation `token_version`.
+
+### Entreprise (application)
+
+Même logique métier, champs et tables dédiés :
+
+1. **PUT /enterprises/me/recovery-email** (Bearer entreprise) : email sur `enterprise_accounts`, lien JWT (`type: enterprise_email_verify`).
+2. **POST /enterprises/email/verify** : `token` → `email_verified_at` sur le compte entreprise.
+3. **POST /enterprises/pin-recovery/request** : `contact` (téléphone E.164 du compte) → email vérifié requis ; envoi reset (`enterprise_pin_reset_tokens`).
+4. **POST /enterprises/pin-recovery/confirm** : `token` + `pin` → `pin_hash` + rotation `token_version` (invalidation JWT / sessions entreprise).
 
 ---
 
@@ -266,10 +300,21 @@ GET /users/:user_id
 → retourne les informations utilisateur OTP Hora :
 - nom
 - prenom
+- email, email_verified (pas d’email à l’inscription ; email via **PUT /users/me/recovery-email** uniquement)
 - contacts
+- devices
 - linked_accounts_count
-- linked_accounts (liste des comptes liés)
+- linked_accounts (liste des comptes liés ; entreprises non supprimées)
 - `pin_hash` seulement si `include_pin_hash=true`
+
+PUT /users/me/recovery-email  
+→ Bearer : définit ou modifie l’email de récupération ; invalide la vérification jusqu’à **POST /users/email/verify**
+
+POST /users/email/verify  
+→ `token` (JWT) : confirme l’email
+
+POST /users/pin-recovery/request | confirm  
+→ voir section « Récupération de compte »
 
 POST /users/refresh-token
 → renouvelle `access_token` + `refresh_token` utilisateur
@@ -280,7 +325,7 @@ POST /users/logout
 
 PATCH /users/:user_id
 → route protégée utilisateur (propriétaire uniquement)
-→ modifie `nom` et/ou `pin`
+→ modifie `nom` et/ou `pin` (**pas** l’email — utiliser **PUT /users/me/recovery-email**)
 
 DELETE /users/:user_id
 → route protégée utilisateur (propriétaire uniquement)
@@ -291,9 +336,6 @@ POST /contacts
 
 POST /devices  
 → ajoute l’appareil de l’utilisateur (**Bearer utilisateur obligatoire**) ; `device_fingerprint`, `device_name` ou en-têtes `User-Agent` / `X-Device-Name`
-
-POST /recovery  
-→ ajoute une méthode de récupération
 
 POST /links/confirm  
 → confirmation utilisateur d’une demande de liaison entreprise

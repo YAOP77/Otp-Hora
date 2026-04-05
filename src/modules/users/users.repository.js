@@ -9,6 +9,7 @@ async function createUser(data) {
       prenom: true,
       status: true,
       role: true,
+      email: true,
     },
   });
 }
@@ -23,6 +24,8 @@ async function findUserProfileById(userId) {
       pin_hash: true,
       status: true,
       role: true,
+      email: true,
+      email_verified_at: true,
       user_contacts: {
         select: {
           contact_id: true,
@@ -43,6 +46,10 @@ async function findUserProfileById(userId) {
       identity_links: {
         where: {
           status: 'active',
+          enterprise_accounts: {
+            deleted_at: null,
+            status: { in: ['active', 'valider'] },
+          },
         },
         select: {
           link_id: true,
@@ -68,6 +75,8 @@ async function findUserById(userId) {
       status: true,
       token_version: true,
       role: true,
+      email: true,
+      email_verified_at: true,
     },
   });
 }
@@ -94,6 +103,34 @@ async function findUserForLoginByPhone(phoneNumber) {
   });
 }
 
+async function findUserForPinRecoveryByPhone(phoneNumber) {
+  return prisma.users.findFirst({
+    where: {
+      status: 'active',
+      user_contacts: {
+        some: {
+          phone_number: phoneNumber,
+        },
+      },
+    },
+    select: {
+      user_id: true,
+      email: true,
+      email_verified_at: true,
+      status: true,
+    },
+  });
+}
+
+async function findUserByEmailForUniqueness(emailNormalized) {
+  return prisma.users.findFirst({
+    where: {
+      email: emailNormalized,
+    },
+    select: { user_id: true },
+  });
+}
+
 async function updateUserById(userId, data) {
   return prisma.users.update({
     where: { user_id: userId },
@@ -104,6 +141,8 @@ async function updateUserById(userId, data) {
       prenom: true,
       status: true,
       role: true,
+      email: true,
+      email_verified_at: true,
     },
   });
 }
@@ -115,6 +154,20 @@ async function incrementTokenVersion(userId) {
       token_version: {
         increment: 1,
       },
+    },
+    select: {
+      user_id: true,
+      token_version: true,
+    },
+  });
+}
+
+async function updateUserPinAndRotateSession(userId, pin_hash) {
+  return prisma.users.update({
+    where: { user_id: userId },
+    data: {
+      pin_hash,
+      token_version: { increment: 1 },
     },
     select: {
       user_id: true,
@@ -163,8 +216,11 @@ module.exports = {
   findUserProfileById,
   findUserById,
   findUserForLoginByPhone,
+  findUserForPinRecoveryByPhone,
+  findUserByEmailForUniqueness,
   updateUserById,
   incrementTokenVersion,
+  updateUserPinAndRotateSession,
   deleteUserById,
   createUserLoginHistory,
   listUserLoginHistory,

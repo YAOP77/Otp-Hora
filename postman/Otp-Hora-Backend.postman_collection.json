@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links`, `auth/*` (serveur) acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises` (legacy) ou `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison : `POST /links` → `POST /links/confirm` → `auth/request` → approve/reject.",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links`, `auth/*` (serveur) acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison : `POST /links` → `POST /links/confirm` → `auth/request` → approve/reject.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -53,48 +53,6 @@
     {
       "name": "enterprise_accounts",
       "item": [
-        {
-          "name": "[OTP HORA] POST Create enterprise (onboarding partenaire)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"nom_entreprise\": \"Demo Enterprise\"\n}"
-            },
-            "url": "{{base_url}}/enterprises",
-            "description": "Onboarding partenaire legacy : `nom_entreprise` uniquement. Réponse 201 : `data.company_id`, `data.api_key` (une seule fois en clair). Pas d'authentification préalable."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status 201 or error', function () {",
-                  "  pm.expect([201,401,403,409,500]).to.include(pm.response.code);",
-                  "});",
-                  "pm.test('JSON has data or error', function () {",
-                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});",
-                  "try {",
-                  "  const j = pm.response.json();",
-                  "  if (j.data && j.data.company_id) {",
-                  "    pm.environment.set('enterprise_id', j.data.company_id);",
-                  "    pm.collectionVariables.set('enterprise_id', j.data.company_id);",
-                  "  }",
-                  "  if (j.data && j.data.api_key) {",
-                  "    pm.environment.set('api_key', j.data.api_key);",
-                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
-                  "  }",
-                  "} catch (e) {}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
         {
           "name": "[ENTREPRISE] POST Register (téléphone + PIN)",
           "request": {
@@ -173,6 +131,93 @@
             ],
             "url": "{{base_url}}/enterprises/me",
             "description": "Profil entreprise authentifié par JWT : téléphone masqué côté logique liste dans `phone_e164`, `devices`, `linked_users`, `login_history` (5 dernières avec `label` formaté FR)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] PATCH Me (nom, téléphone, PIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_entreprise\": \"Nouveau nom\",\n  \"phone\": \"+2250700000001\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Mise à jour sécurisée. Téléphone en E.164 ; conflit → `PHONE_ALREADY_REGISTERED` (409)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] DELETE Me (soft delete + PIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Suppression logique : `deleted_at`, statut `deleted`, liens `revoked`, tokens invalidés."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] PUT Recovery email (authentifié)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"contact@entreprise.com\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me/recovery-email",
+            "description": "Email de récupération entreprise ; `email_verified` repasse à false jusqu'à POST /enterprises/email/verify."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Verify enterprise email",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<jwt depuis logs serveur>\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/email/verify",
+            "description": "Confirme l'email entreprise (type `enterprise_email_verify`)."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Enterprise PIN recovery request",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/pin-recovery/request",
+            "description": "Comme utilisateur : email **vérifié** requis. Sinon `RECOVERY_EMAIL_REQUIRED`."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Enterprise PIN recovery confirm",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token email ou logs>\",\n  \"pin\": \"654321\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/pin-recovery/confirm",
+            "description": "Réinitialise le PIN entreprise ; invalide les JWT existants (token_version)."
           }
         },
         {
@@ -572,45 +617,62 @@
       ]
     },
     {
-      "name": "recovery_methods",
+      "name": "account_recovery",
       "item": [
         {
-          "name": "[UTILISATEUR] POST Create recovery method",
+          "name": "[UTILISATEUR] PUT Recovery email (authentifié)",
           "request": {
-            "method": "POST",
+            "method": "PUT",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"method_type\": \"email\"\n}"
+              "raw": "{\n  \"email\": \"user@example.com\"\n}"
             },
-            "url": "{{base_url}}/recovery",
-            "description": "Crée une méthode de récupération (`status: active`)."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status in expected range', function () {",
-                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
-                  "});",
-                  "pm.test('JSON has data or error', function () {",
-                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});",
-                  "try {",
-                  "  const j = pm.response.json();",
-                  "  if (j.data && j.data.recovery_id) {",
-                  "    pm.environment.set('recovery_id', j.data.recovery_id);",
-                  "    pm.collectionVariables.set('recovery_id', j.data.recovery_id);",
-                  "  }",
-                  "} catch (e) {}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
+            "url": "{{base_url}}/users/me/recovery-email",
+            "description": "Définit ou modifie l'email de récupération. `email_verified` repasse à false jusqu'à POST /users/email/verify."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Verify email (token du mail)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<jwt depuis les logs serveur en dev>\"\n}"
+            },
+            "url": "{{base_url}}/users/email/verify",
+            "description": "Confirme l'email (lien dans le mail mock : voir logs `emailService`)."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Request PIN recovery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
+            },
+            "url": "{{base_url}}/users/pin-recovery/request",
+            "description": "Nécessite un email **vérifié** sur le compte. Sinon erreur `RECOVERY_EMAIL_REQUIRED` (403). En dev, lien reset dans les logs."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Confirm PIN recovery",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token depuis email ou logs>\",\n  \"pin\": \"654321\"\n}"
+            },
+            "url": "{{base_url}}/users/pin-recovery/confirm",
+            "description": "Token usage unique, expire après PIN_RESET_TOKEN_TTL_MINUTES (défaut 15)."
+          }
         }
       ]
     },

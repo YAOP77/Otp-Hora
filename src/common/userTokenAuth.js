@@ -137,8 +137,11 @@ async function requireCompanyAccessToken(req, _res, next) {
       return next(createError('Token invalide', 401, 'INVALID_TOKEN'));
     }
 
-    const enterprise = await prisma.enterprise_accounts.findUnique({
-      where: { company_id: payload.sub },
+    const enterprise = await prisma.enterprise_accounts.findFirst({
+      where: {
+        company_id: payload.sub,
+        deleted_at: null,
+      },
       select: {
         company_id: true,
         nom_entreprise: true,

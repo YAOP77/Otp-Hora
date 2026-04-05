@@ -24,6 +24,13 @@ const env = {
     Number.parseInt(process.env.USER_ACCESS_TOKEN_TTL_SECONDS, 10) || 15 * 60,
   userRefreshTokenTtl:
     Number.parseInt(process.env.USER_REFRESH_TOKEN_TTL_SECONDS, 10) || 7 * 24 * 60 * 60,
+  emailVerificationSecret:
+    process.env.EMAIL_VERIFICATION_SECRET || 'dev_email_verification_secret_change_me',
+  emailVerificationTtl:
+    Number.parseInt(process.env.EMAIL_VERIFICATION_TTL_SECONDS, 10) || 24 * 60 * 60,
+  pinResetTokenTtlMinutes:
+    Number.parseInt(process.env.PIN_RESET_TOKEN_TTL_MINUTES, 10) || 15,
+  publicAppUrl: process.env.PUBLIC_APP_URL || 'https://app.otp-hora.example',
 };
 
 module.exports = { env };
