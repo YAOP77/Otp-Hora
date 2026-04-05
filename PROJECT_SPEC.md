@@ -265,8 +265,8 @@ Règle **stricte** : sans **email vérifié** (`email_verified_at`), **aucune** 
 
 1. **PUT /users/me/recovery-email** (Bearer) : enregistre l’email, envoie un lien de vérification (JWT, mock → logs serveur en dev).
 2. **POST /users/email/verify** : `token` → positionne `email_verified_at`.
-3. **POST /users/pin-recovery/request** : `contact` (téléphone E.164) → si compte avec email vérifié, envoi d’un lien de reset (`pin_reset_tokens`, TTL configurable, usage unique).
-4. **POST /users/pin-recovery/confirm** : `token` + nouveau `pin` → mise à jour `pin_hash`, rotation `token_version`.
+3. **POST /users/pin-recovery/request** : téléphone en `contact` **ou** `phone` **ou** `phone_number` (E.164) → si compte avec email vérifié, envoi d’un lien de reset (`pin_reset_tokens`, TTL configurable, usage unique).
+4. **POST /users/pin-recovery/confirm** : `token` + nouveau PIN (`pin`, ou alias `code_pin` / `PIN` ; chaîne ou nombre 4–6 chiffres) → mise à jour `pin_hash`, rotation `token_version`.
 
 ### Entreprise (application)
 
@@ -274,8 +274,8 @@ Même logique métier, champs et tables dédiés :
 
 1. **PUT /enterprises/me/recovery-email** (Bearer entreprise) : email sur `enterprise_accounts`, lien JWT (`type: enterprise_email_verify`).
 2. **POST /enterprises/email/verify** : `token` → `email_verified_at` sur le compte entreprise.
-3. **POST /enterprises/pin-recovery/request** : `contact` (téléphone E.164 du compte) → email vérifié requis ; envoi reset (`enterprise_pin_reset_tokens`).
-4. **POST /enterprises/pin-recovery/confirm** : `token` + `pin` → `pin_hash` + rotation `token_version` (invalidation JWT / sessions entreprise).
+3. **POST /enterprises/pin-recovery/request** : même champs téléphone que les utilisateurs (`contact` \| `phone` \| `phone_number`, E.164) → email vérifié requis ; envoi reset (`enterprise_pin_reset_tokens`).
+4. **POST /enterprises/pin-recovery/confirm** : `token` + PIN (`pin` ou alias `code_pin` / `PIN`) → `pin_hash` + rotation `token_version` (invalidation JWT / sessions entreprise).
 
 ---
 

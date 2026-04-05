@@ -5,6 +5,7 @@ const pinRecoveryRepository = require('./pinRecovery.repository');
 const usersRepository = require('../users/users.repository');
 const { createError } = require('../../common/errors');
 const { normalizeToE164 } = require('../../common/phone');
+const { normalizePinInput } = require('../../common/pinInput');
 const { env } = require('../../config/env');
 const {
   sendPinResetEmail,
@@ -85,7 +86,7 @@ async function requestPinReset(payload) {
 async function confirmPinReset(payload) {
   const rawToken =
     typeof payload?.token === 'string' ? payload.token.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!rawToken) {
     throw createError('Le champ token est obligatoire', 400, 'INVALID_INPUT');

@@ -1,5 +1,6 @@
 const pinRecoveryService = require('./pinRecovery.service');
 const enterprisePinRecoveryService = require('./enterprisePinRecovery.service');
+const { pinFromBody } = require('../../common/pinInput');
 const {
   validate,
   pinRecoveryRequestSchema,
@@ -38,7 +39,10 @@ async function requestEnterprisePinReset(req, res, next) {
 
 async function confirmEnterprisePinReset(req, res, next) {
   try {
-    const body = validate(pinRecoveryConfirmSchema, req.body);
+    const body = validate(pinRecoveryConfirmSchema, {
+      token: req.body?.token,
+      pin: pinFromBody(req.body),
+    });
     const data = await enterprisePinRecoveryService.confirmEnterprisePinReset(body);
     return res.status(200).json({ data });
   } catch (error) {

@@ -204,6 +204,8 @@ Référence détaillée : `PROJECT_SPEC.md`.
 
 ### Tableau récapitulatif
 
+Pour les routes avec code PIN, le corps JSON accepte `pin` en **chaîne** ou en **nombre** (ex. `"1234"` ou `1234`, utile pour les clients mobiles). Alias reconnus : `code_pin`, `PIN` (inscription / connexion / unlock / PATCH profil). Pour **`POST .../pin-recovery/request`** (utilisateur et entreprise), le téléphone peut être envoyé sous `contact`, `phone` ou `phone_number` (normalisé côté serveur en `{ contact }`). Pour **`.../pin-recovery/confirm`**, les mêmes alias `pin` / `code_pin` / `PIN` s’appliquent.
+
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
 | `GET` | `/api/health` | Vérifie que l’API est disponible |

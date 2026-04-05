@@ -5,6 +5,7 @@ const {
   recoveryEmailSchema,
   emailVerifySchema,
 } = require('../../common/validators');
+const { pinFromBody } = require('../../common/pinInput');
 
 async function createUser(req, res, next) {
   try {
@@ -12,7 +13,7 @@ async function createUser(req, res, next) {
     const result = await usersService.createUser({
       nom: req.body?.nom,
       prenom: req.body?.prenom,
-      pin: req.body?.pin,
+      pin: pinFromBody(req.body),
       device_meta: meta,
     });
     return res.status(201).json({
@@ -29,7 +30,7 @@ async function loginUser(req, res, next) {
     const meta = getDeviceMeta(req, req.body);
     const result = await usersService.loginUser({
       phone_number: req.body?.phone_number ?? req.body?.phone ?? req.body?.contact,
-      pin: req.body?.pin ?? req.body?.PIN ?? req.body?.code_pin,
+      pin: pinFromBody(req.body),
       device_meta: meta,
     });
     return res.status(200).json({
@@ -45,7 +46,7 @@ async function unlockUserSession(req, res, next) {
   try {
     const meta = getDeviceMeta(req, req.body);
     const result = await usersService.unlockUserSession({
-      pin: req.body?.pin ?? req.body?.PIN ?? req.body?.code_pin,
+      pin: pinFromBody(req.body),
       refresh_token: req.body?.refresh_token,
       device_meta: meta,
     });
@@ -104,7 +105,7 @@ async function updateUser(req, res, next) {
       user_id: req.params?.user_id,
       requester_user_id: req.userAuth?.user_id,
       nom: req.body?.nom,
-      pin: req.body?.pin,
+      pin: pinFromBody(req.body),
       email: req.body?.email,
       recovery_email: req.body?.recovery_email,
     });

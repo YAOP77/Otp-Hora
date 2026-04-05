@@ -5,6 +5,7 @@ const enterprisePinRecoveryRepository = require('./enterprisePinRecovery.reposit
 const enterpriseRepository = require('../enterprise_accounts/enterprise.repository');
 const { createError } = require('../../common/errors');
 const { normalizeToE164 } = require('../../common/phone');
+const { normalizePinInput } = require('../../common/pinInput');
 const { env } = require('../../config/env');
 const {
   sendPinResetEmail,
@@ -17,8 +18,9 @@ function hashPinResetRawToken(rawToken) {
   return createHash('sha256').update(rawToken, 'utf8').digest('hex');
 }
 
-function validatePin(pin) {
-  if (typeof pin !== 'string' || !PIN_REGEX.test(pin.trim())) {
+function validatePin(rawPin) {
+  const pin = normalizePinInput(rawPin);
+  if (!PIN_REGEX.test(pin)) {
     throw createError('Le PIN doit contenir 4 à 6 chiffres', 400, 'INVALID_PIN_FORMAT');
   }
 }
@@ -87,7 +89,7 @@ async function requestEnterprisePinReset(payload) {
 async function confirmEnterprisePinReset(payload) {
   const rawToken =
     typeof payload?.token === 'string' ? payload.token.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!rawToken) {
     throw createError('Le champ token est obligatoire', 400, 'INVALID_INPUT');

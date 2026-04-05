@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const usersRepository = require('./users.repository');
 const { createError } = require('../../common/errors');
 const { normalizeToE164, ROLES } = require('../../common/phone');
+const { normalizePinInput } = require('../../common/pinInput');
 const { formatLoginHistoryLabel } = require('../../common/loginHistoryFormat');
 const {
   signUserAccessToken,
@@ -23,10 +24,12 @@ const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOGIN_HISTORY_LIMIT = 5;
 
-function validatePin(pin) {
-  if (typeof pin !== 'string' || !PIN_REGEX.test(pin.trim())) {
+function validatePin(rawPin) {
+  const pin = normalizePinInput(rawPin);
+  if (!PIN_REGEX.test(pin)) {
     const error = new Error('Le PIN doit contenir 4 à 6 chiffres');
     error.statusCode = 400;
+    error.code = 'INVALID_PIN_FORMAT';
     throw error;
   }
 }
@@ -48,7 +51,7 @@ async function recordUserLogin(userId, deviceMeta) {
 async function createUser(payload) {
   const nom = typeof payload?.nom === 'string' ? payload.nom.trim() : '';
   const prenom = typeof payload?.prenom === 'string' ? payload.prenom.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!nom) {
     const error = new Error('Le champ nom est obligatoire');
@@ -93,7 +96,7 @@ async function loginUser(payload) {
     typeof payload?.phone_number === 'string'
       ? payload.phone_number
       : payload?.phone ?? payload?.contact;
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!phoneRaw || typeof phoneRaw !== 'string') {
     throw createError('Le champ phone_number est obligatoire', 400, 'INVALID_INPUT');
@@ -131,7 +134,7 @@ async function loginUser(payload) {
 }
 
 async function unlockUserSession(payload) {
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
   const refreshToken =
     typeof payload?.refresh_token === 'string' ? payload.refresh_token.trim() : '';
 
@@ -260,7 +263,7 @@ async function updateUser(payload) {
   const requesterUserId =
     typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
   const nom = typeof payload?.nom === 'string' ? payload.nom.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!userId || !UUID_REGEX.test(userId)) {
     throw createError('Le parametre user_id doit etre un UUID valide', 400, 'INVALID_UUID');

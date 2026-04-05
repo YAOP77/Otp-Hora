@@ -6,6 +6,7 @@ const {
   recoveryEmailSchema,
   emailVerifySchema,
 } = require('../../common/validators');
+const { pinFromBody } = require('../../common/pinInput');
 
 async function registerEnterprise(req, res, next) {
   try {
@@ -15,7 +16,8 @@ async function registerEnterprise(req, res, next) {
       nom_entreprise: req.body?.nom_entreprise,
       phone: req.body?.phone,
       phone_number: req.body?.phone_number,
-      pin: req.body?.pin,
+      contact: req.body?.contact,
+      pin: pinFromBody(req.body),
       device_meta: meta,
     });
     return res.status(201).json({
@@ -34,7 +36,8 @@ async function loginEnterprise(req, res, next) {
     const result = await enterpriseService.loginEnterprise({
       phone: req.body?.phone,
       phone_number: req.body?.phone_number,
-      pin: req.body?.pin,
+      contact: req.body?.contact,
+      pin: pinFromBody(req.body),
       device_meta: meta,
     });
     return res.status(200).json({
@@ -61,7 +64,7 @@ async function unlockEnterpriseSession(req, res, next) {
   try {
     const meta = getDeviceMeta(req, req.body);
     const result = await enterpriseService.unlockEnterpriseSession({
-      pin: req.body?.pin,
+      pin: pinFromBody(req.body),
       refresh_token: req.body?.refresh_token,
       device_meta: meta,
     });
@@ -87,7 +90,7 @@ async function patchEnterpriseMe(req, res, next) {
       nom_entreprise: req.body?.nom_entreprise ?? req.body?.nom,
       phone: req.body?.phone,
       phone_number: req.body?.phone_number,
-      pin: req.body?.pin,
+      pin: pinFromBody(req.body),
       email: req.body?.email,
       recovery_email: req.body?.recovery_email,
     });

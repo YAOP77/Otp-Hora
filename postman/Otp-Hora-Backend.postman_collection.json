@@ -204,7 +204,7 @@
               "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
             },
             "url": "{{base_url}}/enterprises/pin-recovery/request",
-            "description": "Comme utilisateur : email **vérifié** requis. Sinon `RECOVERY_EMAIL_REQUIRED`."
+            "description": "Corps : `contact` ou `phone` ou `phone_number` (E.164). Email **vérifié** requis. Sinon `RECOVERY_EMAIL_REQUIRED`."
           }
         },
         {
@@ -217,7 +217,7 @@
               "raw": "{\n  \"token\": \"<token email ou logs>\",\n  \"pin\": \"654321\"\n}"
             },
             "url": "{{base_url}}/enterprises/pin-recovery/confirm",
-            "description": "Réinitialise le PIN entreprise ; invalide les JWT existants (token_version)."
+            "description": "`token` + `pin` (ou `code_pin` / `PIN` ; chaîne ou nombre). Réinitialise le PIN ; invalide les JWT (token_version)."
           }
         },
         {
@@ -658,7 +658,7 @@
               "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
             },
             "url": "{{base_url}}/users/pin-recovery/request",
-            "description": "Nécessite un email **vérifié** sur le compte. Sinon erreur `RECOVERY_EMAIL_REQUIRED` (403). En dev, lien reset dans les logs."
+            "description": "`contact` ou `phone` ou `phone_number` (E.164). Email **vérifié** requis sinon `RECOVERY_EMAIL_REQUIRED` (403). En dev, lien reset dans les logs."
           }
         },
         {
@@ -671,7 +671,7 @@
               "raw": "{\n  \"token\": \"<token depuis email ou logs>\",\n  \"pin\": \"654321\"\n}"
             },
             "url": "{{base_url}}/users/pin-recovery/confirm",
-            "description": "Token usage unique, expire après PIN_RESET_TOKEN_TTL_MINUTES (défaut 15)."
+            "description": "`token` + PIN (`pin` ou `code_pin` / `PIN`). Usage unique, TTL `PIN_RESET_TOKEN_TTL_MINUTES` (défaut 15)."
           }
         }
       ]

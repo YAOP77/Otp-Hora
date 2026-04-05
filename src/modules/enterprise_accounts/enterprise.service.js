@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const enterpriseRepository = require('./enterprise.repository');
 const { createError } = require('../../common/errors');
 const { normalizeToE164, ROLES } = require('../../common/phone');
+const { normalizePinInput } = require('../../common/pinInput');
 const { formatLoginHistoryLabel } = require('../../common/loginHistoryFormat');
 const {
   signCompanyAccessToken,
@@ -25,10 +26,12 @@ function generateApiKey() {
   return randomBytes(32).toString('hex');
 }
 
-function validatePin(pin) {
-  if (typeof pin !== 'string' || !PIN_REGEX.test(pin.trim())) {
+function validatePin(rawPin) {
+  const pin = normalizePinInput(rawPin);
+  if (!PIN_REGEX.test(pin)) {
     const error = new Error('Le PIN doit contenir 4 à 6 chiffres');
     error.statusCode = 400;
+    error.code = 'INVALID_PIN_FORMAT';
     throw error;
   }
 }
@@ -44,15 +47,24 @@ async function registerEnterprise(payload) {
     (typeof payload?.nom === 'string' && payload.nom.trim()) ||
     '';
 
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
-  const phoneRaw = typeof payload?.phone === 'string' ? payload.phone : payload?.phone_number;
+  const pin = normalizePinInput(payload?.pin);
+  const phoneRaw =
+    typeof payload?.phone === 'string'
+      ? payload.phone
+      : typeof payload?.phone_number === 'string'
+        ? payload.phone_number
+        : typeof payload?.contact === 'string'
+          ? payload.contact
+          : payload?.phone ?? payload?.phone_number ?? payload?.contact;
 
   if (!nomEntreprise) {
     throw createError('Le champ nom (ou nom_entreprise) est obligatoire', 400, 'INVALID_INPUT');
   }
   validatePin(pin);
 
-  const phone_e164 = normalizeToE164(phoneRaw);
+  const phone_e164 = normalizeToE164(
+    typeof phoneRaw === 'string' ? phoneRaw : phoneRaw != null ? String(phoneRaw) : '',
+  );
 
   const existing = await enterpriseRepository.findEnterpriseByPhoneE164(phone_e164);
   if (existing) {
@@ -103,12 +115,21 @@ async function recordEnterpriseLogin(companyId, deviceMeta) {
 }
 
 async function loginEnterprise(payload) {
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
-  const phoneRaw = typeof payload?.phone === 'string' ? payload.phone : payload?.phone_number;
+  const pin = normalizePinInput(payload?.pin);
+  const phoneRaw =
+    typeof payload?.phone === 'string'
+      ? payload.phone
+      : typeof payload?.phone_number === 'string'
+        ? payload.phone_number
+        : typeof payload?.contact === 'string'
+          ? payload.contact
+          : payload?.phone ?? payload?.phone_number ?? payload?.contact;
 
   validatePin(pin);
 
-  const phone_e164 = normalizeToE164(phoneRaw);
+  const phone_e164 = normalizeToE164(
+    typeof phoneRaw === 'string' ? phoneRaw : phoneRaw != null ? String(phoneRaw) : '',
+  );
   const enterprise = await enterpriseRepository.findEnterpriseByPhoneE164(phone_e164);
 
   if (
@@ -172,7 +193,7 @@ async function refreshEnterpriseToken(payload) {
 }
 
 async function unlockEnterpriseSession(payload) {
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
   const refreshToken =
     typeof payload?.refresh_token === 'string' ? payload.refresh_token.trim() : '';
 
@@ -265,7 +286,7 @@ async function updateEnterpriseAccount(payload) {
   const nom_entreprise =
     typeof payload?.nom_entreprise === 'string' ? payload.nom_entreprise.trim() : '';
   const nom = typeof payload?.nom === 'string' ? payload.nom.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
   const phoneRaw =
     payload?.phone !== undefined
       ? payload.phone
@@ -321,7 +342,7 @@ async function updateEnterpriseAccount(payload) {
 async function deleteEnterpriseAccount(payload) {
   const companyId =
     typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
-  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const pin = normalizePinInput(payload?.pin);
 
   if (!companyId) {
     throw createError('company_id manquant', 400, 'INVALID_INPUT');
