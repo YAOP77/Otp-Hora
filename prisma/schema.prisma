@@ -7,17 +7,19 @@ datasource db {
 }
 
 model users {
-  user_id  String @id @default(uuid()) @db.Uuid
-  nom      String
-  prenom   String
-  pin_hash String
-  token_version Int @default(0)
-  status   String
+  user_id       String @id @default(uuid()) @db.Uuid
+  nom           String
+  prenom        String
+  pin_hash      String
+  token_version Int    @default(0)
+  status        String
+  role          String @default("user")
 
-  user_contacts    user_contacts[]
-  user_devices     user_devices[]
-  identity_links   identity_links[]
-  recovery_methods recovery_methods[]
+  user_contacts        user_contacts[]
+  user_devices         user_devices[]
+  identity_links       identity_links[]
+  recovery_methods     recovery_methods[]
+  user_login_history   user_login_history[]
 }
 
 model user_contacts {
@@ -30,29 +32,75 @@ model user_contacts {
 }
 
 model user_devices {
-  device_id         String  @id @default(uuid()) @db.Uuid
-  user_id           String  @db.Uuid
+  device_id          String    @id @default(uuid()) @db.Uuid
+  user_id            String    @db.Uuid
   device_fingerprint String
-  trusted           Boolean
+  trusted            Boolean
+  device_name        String?
+  user_agent         String?
+  last_seen_at       DateTime?
 
   users users @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
 }
 
 model enterprise_accounts {
-  company_id    String @id @default(uuid()) @db.Uuid
+  company_id     String @id @default(uuid()) @db.Uuid
   nom_entreprise String
-  api_key       String
-  status        String
+  api_key        String
+  status         String
+  phone_e164     String? @unique
+  pin_hash       String?
+  token_version  Int     @default(0)
 
-  identity_links identity_links[]
+  identity_links           identity_links[]
+  enterprise_devices     enterprise_devices[]
+  enterprise_login_history enterprise_login_history[]
+}
+
+model enterprise_devices {
+  device_id          String @id @default(uuid()) @db.Uuid
+  company_id         String @db.Uuid
+  device_fingerprint String
+  trusted            Boolean @default(false)
+  device_name        String?
+  user_agent         String?
+  last_seen_at       DateTime?
+
+  enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+
+  @@unique([company_id, device_fingerprint])
+}
+
+model user_login_history {
+  history_id   String   @id @default(uuid()) @db.Uuid
+  user_id      String   @db.Uuid
+  device_name  String?
+  user_agent   String?
+  connected_at DateTime @default(now())
+
+  users users @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+
+  @@index([user_id, connected_at])
+}
+
+model enterprise_login_history {
+  history_id   String   @id @default(uuid()) @db.Uuid
+  company_id   String   @db.Uuid
+  device_name  String?
+  user_agent   String?
+  connected_at DateTime @default(now())
+
+  enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
+
+  @@index([company_id, connected_at])
 }
 
 model identity_links {
-  link_id       String @id @default(uuid()) @db.Uuid
-  company_id    String @db.Uuid
-  user_id       String? @db.Uuid
-  external_ref  String
-  status        String
+  link_id      String @id @default(uuid()) @db.Uuid
+  company_id   String @db.Uuid
+  user_id      String? @db.Uuid
+  external_ref String
+  status       String
 
   enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
   users               users?              @relation(fields: [user_id], references: [user_id], onDelete: Cascade)

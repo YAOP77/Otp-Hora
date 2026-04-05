@@ -8,6 +8,7 @@ async function createUser(data) {
       nom: true,
       prenom: true,
       status: true,
+      role: true,
     },
   });
 }
@@ -21,11 +22,22 @@ async function findUserProfileById(userId) {
       prenom: true,
       pin_hash: true,
       status: true,
+      role: true,
       user_contacts: {
         select: {
           contact_id: true,
           phone_number: true,
           verified_at: true,
+        },
+      },
+      user_devices: {
+        select: {
+          device_id: true,
+          device_fingerprint: true,
+          trusted: true,
+          device_name: true,
+          user_agent: true,
+          last_seen_at: true,
         },
       },
       identity_links: {
@@ -55,6 +67,7 @@ async function findUserById(userId) {
       user_id: true,
       status: true,
       token_version: true,
+      role: true,
     },
   });
 }
@@ -76,6 +89,7 @@ async function findUserForLoginByPhone(phoneNumber) {
       pin_hash: true,
       status: true,
       token_version: true,
+      role: true,
     },
   });
 }
@@ -89,6 +103,7 @@ async function updateUserById(userId, data) {
       nom: true,
       prenom: true,
       status: true,
+      role: true,
     },
   });
 }
@@ -117,6 +132,32 @@ async function deleteUserById(userId) {
   });
 }
 
+async function createUserLoginHistory(data) {
+  return prisma.user_login_history.create({
+    data,
+    select: {
+      history_id: true,
+      device_name: true,
+      user_agent: true,
+      connected_at: true,
+    },
+  });
+}
+
+async function listUserLoginHistory(userId, limit) {
+  return prisma.user_login_history.findMany({
+    where: { user_id: userId },
+    orderBy: { connected_at: 'desc' },
+    take: limit,
+    select: {
+      history_id: true,
+      device_name: true,
+      user_agent: true,
+      connected_at: true,
+    },
+  });
+}
+
 module.exports = {
   createUser,
   findUserProfileById,
@@ -125,4 +166,6 @@ module.exports = {
   updateUserById,
   incrementTokenVersion,
   deleteUserById,
+  createUserLoginHistory,
+  listUserLoginHistory,
 };

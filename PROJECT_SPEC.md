@@ -140,12 +140,14 @@ IMPORTANT :
 - nom
 - prenom
 - pin_hash (hash bcrypt du PIN — jamais le PIN en clair)
+- token_version (invalidation logout / rotation)
 - statut
+- role (`user` | valeurs réservées ; défaut `user`)
 
 ### user_contacts
 - contact_id
 - user_id
-- phone_number
+- phone_number (stockage **normalisé E.164**, ex. `+2250700000000`)
 - verified_at
 
 ### user_devices
@@ -153,12 +155,34 @@ IMPORTANT :
 - user_id
 - device_fingerprint
 - trusted
+- device_name, user_agent, last_seen_at (métadonnées appareil)
+
+### user_login_history
+- history_id
+- user_id
+- device_name, user_agent
+- connected_at (journal des connexions, affichage limité côté API)
 
 ### enterprise_accounts
 - company_id
 - nom_entreprise
-- api_key
+- api_key (hash bcrypt — usage intégration serveur B2B)
 - status
+- phone_e164 (optionnel pour comptes **legacy** uniquement `api_key` ; obligatoire pour login appli entreprise)
+- pin_hash (optionnel ; hash bcrypt si téléphone + PIN activés)
+- token_version (invalidation logout entreprise)
+
+### enterprise_devices
+- device_id
+- company_id
+- device_fingerprint (unique par entreprise)
+- trusted, device_name, user_agent, last_seen_at
+
+### enterprise_login_history
+- history_id
+- company_id
+- device_name, user_agent
+- connected_at
 
 ### identity_links
 - link_id
@@ -189,7 +213,12 @@ IMPORTANT :
 
 ## API ENTREPRISE (STRICT)
 
-### Authentification
+### Authentification intégration serveur (B2B)
+
+Les routes consommées par le **backend partenaire** (`POST /links`, `POST /auth/request`, `GET /auth/status/:request_id`, `GET /auth/events/:request_id`) acceptent :
+
+- **`x-api-key`** : clé API hashée (onboarding `POST /enterprises` ou `POST /enterprises/register`), **ou**
+- **`Authorization: Bearer <access_token>`** : JWT émis pour le rôle **`company`** (`POST /enterprises/login` / inscription entreprise).
 
 POST /auth/request  
 → créer une demande  
@@ -200,6 +229,19 @@ GET /auth/status/:request_id
 - pending
 - approved
 - rejected
+
+### Application entreprise (compte + PIN)
+
+- **POST /enterprises/register** : `nom_entreprise` (ou `nom`), téléphone international (`phone` / `phone_number`, validé en E.164), `pin` (4–6 chiffres, hash bcrypt). Retourne profil entreprise, **`api_key` brute** (B2B) et couple JWT (`role: company`).
+- **POST /enterprises/login** : téléphone + `pin` → JWT entreprise.
+- **POST /enterprises/refresh-token** : refresh token entreprise uniquement.
+- **POST /enterprises/session/unlock** : `refresh_token` + `pin` → nouveaux tokens (retour utilisateur sans refaire saisie téléphone complète).
+- **GET /PATCH /enterprises/me**, **POST /enterprises/logout** : profil, mise à jour (`nom_entreprise`, `pin`), déconnexion (incrément `token_version`).
+- **GET /enterprises/me/devices**, **POST /enterprises/me/devices** : liste / enregistrement d’appareils (Bearer entreprise).
+- **GET /enterprises/me/linked-users** ou agrégat dans **GET /enterprises/me** : utilisateurs liés (`identity_links` actifs).
+- **GET /enterprises/me/login-history** : jusqu’à **5** dernières connexions avec libellé lisible (FR).
+
+**Legacy** : **POST /enterprises** (nom seul) génère uniquement une `api_key` ; pas de login téléphone sans migration ultérieure.
 
 ---
 
@@ -212,7 +254,13 @@ POST /users
 
 POST /users/login
 → connexion flexible via `phone_number` + `pin`
-→ retourne `access_token` + `refresh_token`
+→ retourne `access_token` + `refresh_token` (JWT avec `role: user`)
+
+POST /users/session/unlock
+→ `refresh_token` + `pin` → nouveaux tokens (verrouillage session produit : pas de nouveau login téléphone)
+
+GET /users/me/login-history
+→ jusqu’à **5** dernières connexions (Bearer utilisateur) ; libellé formaté côté API
 
 GET /users/:user_id  
 → retourne les informations utilisateur OTP Hora :
@@ -242,7 +290,7 @@ POST /contacts
 → ajoute le téléphone de l’utilisateur
 
 POST /devices  
-→ ajoute l’appareil de l’utilisateur
+→ ajoute l’appareil de l’utilisateur (**Bearer utilisateur obligatoire**) ; `device_fingerprint`, `device_name` ou en-têtes `User-Agent` / `X-Device-Name`
 
 POST /recovery  
 → ajoute une méthode de récupération
@@ -300,14 +348,13 @@ Routes utilisateur sensibles protégées via `Authorization: Bearer <access_toke
 
 ---
 
-## RÈGLES STRICTES DE DÉVELOPPEMENT
+## RÈGLES DE DÉVELOPPEMENT
 
-- Ne PAS ajouter de fonctionnalités
-- Ne PAS modifier le flux métier
-- Ne PAS déplacer la logique vers l’entreprise
-- Respect strict du cahier des charges
-- Ne PAS casser l’architecture existante
-- Corriger uniquement les incohérences
+- Préserver l’architecture **controller → service → repository** et la gestion d’erreurs centralisée.
+- Ne pas exposer les secrets (PIN, clés API en clair hors création).
+- Téléphones : validation et normalisation **E.164** à l’écriture et à la lecture métier.
+- JWT : distinguer explicitement les rôles **`user`** et **`company`** dans le payload.
+- Maintenir la compatibilité des intégrations existantes (`x-api-key`, flux `links` / `auth_*`) lors d’évolutions.
 
 ---
 

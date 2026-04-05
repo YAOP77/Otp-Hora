@@ -1,9 +1,28 @@
 const { randomBytes, randomUUID } = require('crypto');
 const bcrypt = require('bcrypt');
 const enterpriseRepository = require('./enterprise.repository');
+const { createError } = require('../../common/errors');
+const { normalizeToE164, ROLES } = require('../../common/phone');
+const { formatLoginHistoryLabel } = require('../../common/loginHistoryFormat');
+const {
+  signCompanyAccessToken,
+  signCompanyRefreshToken,
+  verifyCompanyRefreshToken,
+} = require('../../common/userTokenAuth');
+
+const PIN_REGEX = /^\d{4,6}$/;
+const LOGIN_HISTORY_LIMIT = 5;
 
 function generateApiKey() {
   return randomBytes(32).toString('hex');
+}
+
+function validatePin(pin) {
+  if (typeof pin !== 'string' || !PIN_REGEX.test(pin.trim())) {
+    const error = new Error('Le PIN doit contenir 4 à 6 chiffres');
+    error.statusCode = 400;
+    throw error;
+  }
 }
 
 async function createEnterprise(payload) {
@@ -32,6 +51,302 @@ async function createEnterprise(payload) {
   };
 }
 
+async function registerEnterprise(payload) {
+  const nomEntreprise =
+    (typeof payload?.nom_entreprise === 'string' && payload.nom_entreprise.trim()) ||
+    (typeof payload?.nom === 'string' && payload.nom.trim()) ||
+    '';
+
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const phoneRaw = typeof payload?.phone === 'string' ? payload.phone : payload?.phone_number;
+
+  if (!nomEntreprise) {
+    throw createError('Le champ nom (ou nom_entreprise) est obligatoire', 400, 'INVALID_INPUT');
+  }
+  validatePin(pin);
+
+  const phone_e164 = normalizeToE164(phoneRaw);
+
+  const existing = await enterpriseRepository.findEnterpriseByPhoneE164(phone_e164);
+  if (existing) {
+    throw createError('Ce numéro est déjà enregistré', 409, 'PHONE_ALREADY_REGISTERED');
+  }
+
+  const rawApiKey = generateApiKey();
+  const hashedApiKey = await bcrypt.hash(rawApiKey, 12);
+  const pin_hash = await bcrypt.hash(pin, 12);
+
+  const enterprise = await enterpriseRepository.createEnterprise({
+    company_id: randomUUID(),
+    nom_entreprise: nomEntreprise,
+    api_key: hashedApiKey,
+    status: 'valider',
+    phone_e164,
+    pin_hash,
+    token_version: 0,
+  });
+
+  const deviceMeta = payload.device_meta || {};
+  await recordEnterpriseLogin(enterprise.company_id, deviceMeta);
+
+  return {
+    company: {
+      company_id: enterprise.company_id,
+      nom_entreprise: enterprise.nom_entreprise,
+      status: enterprise.status,
+      phone_e164: enterprise.phone_e164,
+      role: ROLES.COMPANY,
+    },
+    api_key: rawApiKey,
+    auth: {
+      access_token: signCompanyAccessToken(enterprise.company_id, 0),
+      refresh_token: signCompanyRefreshToken(enterprise.company_id, 0),
+      token_type: 'Bearer',
+    },
+  };
+}
+
+async function recordEnterpriseLogin(companyId, deviceMeta) {
+  await enterpriseRepository.createEnterpriseLoginHistory({
+    history_id: randomUUID(),
+    company_id: companyId,
+    device_name: deviceMeta.device_name || null,
+    user_agent: deviceMeta.user_agent || null,
+  });
+}
+
+async function loginEnterprise(payload) {
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const phoneRaw = typeof payload?.phone === 'string' ? payload.phone : payload?.phone_number;
+
+  validatePin(pin);
+
+  const phone_e164 = normalizeToE164(phoneRaw);
+  const enterprise = await enterpriseRepository.findEnterpriseByPhoneE164(phone_e164);
+
+  if (
+    !enterprise ||
+    !enterprise.pin_hash ||
+    (enterprise.status !== 'active' && enterprise.status !== 'valider')
+  ) {
+    throw createError('Identifiants invalides', 401, 'INVALID_CREDENTIALS');
+  }
+
+  const ok = await bcrypt.compare(pin, enterprise.pin_hash);
+  if (!ok) {
+    throw createError('Identifiants invalides', 401, 'INVALID_CREDENTIALS');
+  }
+
+  await recordEnterpriseLogin(enterprise.company_id, payload.device_meta || {});
+
+  return {
+    company: {
+      company_id: enterprise.company_id,
+      nom_entreprise: enterprise.nom_entreprise,
+      status: enterprise.status,
+      phone_e164: enterprise.phone_e164,
+      role: ROLES.COMPANY,
+    },
+    auth: {
+      access_token: signCompanyAccessToken(enterprise.company_id, enterprise.token_version),
+      refresh_token: signCompanyRefreshToken(enterprise.company_id, enterprise.token_version),
+      token_type: 'Bearer',
+    },
+  };
+}
+
+async function refreshEnterpriseToken(payload) {
+  const refreshToken =
+    typeof payload?.refresh_token === 'string' ? payload.refresh_token.trim() : '';
+
+  if (!refreshToken) {
+    throw createError('Le champ refresh_token est obligatoire', 400, 'INVALID_INPUT');
+  }
+
+  const tokenPayload = verifyCompanyRefreshToken(refreshToken);
+  const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(tokenPayload.sub);
+  if (
+    !enterprise ||
+    (enterprise.status !== 'active' && enterprise.status !== 'valider') ||
+    !enterprise.pin_hash
+  ) {
+    throw createError('Entreprise introuvable ou inactive', 401, 'UNAUTHORIZED');
+  }
+
+  if (enterprise.token_version !== tokenPayload.tv) {
+    throw createError('Refresh token invalide ou expiré', 401, 'INVALID_REFRESH_TOKEN');
+  }
+
+  return {
+    access_token: signCompanyAccessToken(enterprise.company_id, enterprise.token_version),
+    refresh_token: signCompanyRefreshToken(enterprise.company_id, enterprise.token_version),
+    token_type: 'Bearer',
+  };
+}
+
+async function unlockEnterpriseSession(payload) {
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const refreshToken =
+    typeof payload?.refresh_token === 'string' ? payload.refresh_token.trim() : '';
+
+  if (!refreshToken) {
+    throw createError('Le champ refresh_token est obligatoire', 400, 'INVALID_INPUT');
+  }
+  validatePin(pin);
+
+  const tokenPayload = verifyCompanyRefreshToken(refreshToken);
+  const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(tokenPayload.sub);
+
+  if (
+    !enterprise ||
+    !enterprise.pin_hash ||
+    (enterprise.status !== 'active' && enterprise.status !== 'valider')
+  ) {
+    throw createError('Session invalide', 401, 'INVALID_SESSION');
+  }
+
+  if (enterprise.token_version !== tokenPayload.tv) {
+    throw createError('Refresh token invalide ou expiré', 401, 'INVALID_REFRESH_TOKEN');
+  }
+
+  const ok = await bcrypt.compare(pin, enterprise.pin_hash);
+  if (!ok) {
+    throw createError('PIN incorrect', 401, 'INVALID_PIN');
+  }
+
+  await recordEnterpriseLogin(enterprise.company_id, payload.device_meta || {});
+
+  return {
+    auth: {
+      access_token: signCompanyAccessToken(enterprise.company_id, enterprise.token_version),
+      refresh_token: signCompanyRefreshToken(enterprise.company_id, enterprise.token_version),
+      token_type: 'Bearer',
+    },
+  };
+}
+
+async function getEnterpriseProfile(companyId) {
+  const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(companyId);
+  if (!enterprise) {
+    throw createError('Entreprise introuvable', 404, 'COMPANY_NOT_FOUND');
+  }
+
+  const [devices, linkedRows, historyRows] = await Promise.all([
+    enterpriseRepository.listEnterpriseDevices(companyId),
+    enterpriseRepository.findLinkedUsersForCompany(companyId),
+    enterpriseRepository.listEnterpriseLoginHistory(companyId, LOGIN_HISTORY_LIMIT),
+  ]);
+
+  const linked_users = linkedRows.map((row) => ({
+    link_id: row.link_id,
+    external_ref: row.external_ref,
+    status: row.status,
+    user: row.users
+      ? {
+          user_id: row.users.user_id,
+          nom: row.users.nom,
+          prenom: row.users.prenom,
+          status: row.users.status,
+        }
+      : null,
+  }));
+
+  const login_history = historyRows.map((h) => ({
+    history_id: h.history_id,
+    label: formatLoginHistoryLabel(h.device_name, h.connected_at),
+    device_name: h.device_name,
+    connected_at: h.connected_at,
+  }));
+
+  return {
+    company_id: enterprise.company_id,
+    nom_entreprise: enterprise.nom_entreprise,
+    status: enterprise.status,
+    phone_e164: enterprise.phone_e164,
+    role: ROLES.COMPANY,
+    devices,
+    linked_users,
+    login_history,
+  };
+}
+
+async function updateEnterpriseAccount(payload) {
+  const companyId =
+    typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
+  const nom_entreprise =
+    typeof payload?.nom_entreprise === 'string' ? payload.nom_entreprise.trim() : '';
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+
+  if (!companyId) {
+    throw createError('company_id manquant', 400, 'INVALID_INPUT');
+  }
+
+  const data = {};
+  if (nom_entreprise) {
+    data.nom_entreprise = nom_entreprise;
+  }
+  if (pin) {
+    validatePin(pin);
+    data.pin_hash = await bcrypt.hash(pin, 12);
+  }
+
+  if (Object.keys(data).length === 0) {
+    throw createError('Aucune modification demandée', 400, 'INVALID_INPUT');
+  }
+
+  try {
+    return await enterpriseRepository.updateEnterpriseById(companyId, data);
+  } catch {
+    throw createError('Entreprise introuvable', 404, 'COMPANY_NOT_FOUND');
+  }
+}
+
+async function logoutEnterprise(companyId) {
+  await enterpriseRepository.updateEnterpriseTokenVersion(companyId);
+  return { message: 'Déconnexion réussie' };
+}
+
+async function registerEnterpriseDevice(payload) {
+  const companyId =
+    typeof payload?.company_id === 'string' ? payload.company_id.trim() : '';
+  const fingerprint =
+    typeof payload?.device_fingerprint === 'string' ? payload.device_fingerprint.trim() : '';
+
+  if (!companyId || !fingerprint) {
+    throw createError('company_id et device_fingerprint sont obligatoires', 400, 'INVALID_INPUT');
+  }
+
+  const now = new Date();
+  return enterpriseRepository.upsertEnterpriseDevice({
+    device_id: randomUUID(),
+    company_id: companyId,
+    device_fingerprint: fingerprint,
+    trusted: false,
+    device_name: payload.device_name || null,
+    user_agent: payload.user_agent || null,
+    last_seen_at: now,
+  });
+}
+
+async function listEnterpriseLoginHistory(companyId) {
+  const rows = await enterpriseRepository.listEnterpriseLoginHistory(companyId, LOGIN_HISTORY_LIMIT);
+  return rows.map((h) => ({
+    history_id: h.history_id,
+    label: formatLoginHistoryLabel(h.device_name, h.connected_at),
+    device_name: h.device_name,
+    connected_at: h.connected_at,
+  }));
+}
+
 module.exports = {
   createEnterprise,
+  registerEnterprise,
+  loginEnterprise,
+  refreshEnterpriseToken,
+  unlockEnterpriseSession,
+  getEnterpriseProfile,
+  updateEnterpriseAccount,
+  logoutEnterprise,
+  registerEnterpriseDevice,
+  listEnterpriseLoginHistory,
 };

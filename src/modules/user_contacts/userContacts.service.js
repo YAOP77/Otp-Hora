@@ -1,10 +1,11 @@
 const { randomUUID } = require('crypto');
 const userContactsRepository = require('./userContacts.repository');
+const { normalizeToE164 } = require('../../common/phone');
 
 async function createContact(payload) {
   const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
-  const phoneNumber =
-    typeof payload?.phone_number === 'string' ? payload.phone_number.trim() : '';
+  const rawPhone =
+    typeof payload?.phone_number === 'string' ? payload.phone_number : '';
 
   if (!userId) {
     const error = new Error('Le champ user_id est obligatoire');
@@ -12,7 +13,7 @@ async function createContact(payload) {
     throw error;
   }
 
-  if (!phoneNumber) {
+  if (!rawPhone) {
     const error = new Error('Le champ phone_number est obligatoire');
     error.statusCode = 400;
     throw error;
@@ -25,10 +26,12 @@ async function createContact(payload) {
     throw error;
   }
 
+  const phone_number = normalizeToE164(rawPhone);
+
   return userContactsRepository.createContact({
     contact_id: randomUUID(),
     user_id: userId,
-    phone_number: phoneNumber,
+    phone_number,
   });
 }
 

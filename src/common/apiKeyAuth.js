@@ -1,9 +1,11 @@
+const jwt = require('jsonwebtoken');
 const enterpriseRepository = require('../modules/enterprise_accounts/enterprise.repository');
 const bcrypt = require('bcrypt');
 const logger = require('./logger');
 const { createError } = require('./errors');
 const { env } = require('../config/env');
 const apiKeyCache = require('./apiKeyCache');
+const { ROLES } = require('./phone');
 
 async function requireEnterpriseApiKey(req, res, next) {
   try {
@@ -95,6 +97,57 @@ async function requireEnterpriseApiKey(req, res, next) {
   }
 }
 
+/**
+ * Routes partenaires : `Authorization: Bearer <access_token>` (rôle company) ou `x-api-key`.
+ */
+async function requireEnterpriseAuth(req, res, next) {
+  const authHeader = req.header('authorization') || '';
+  if (authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (!token) {
+      return next(createError('Authorization Bearer token est obligatoire', 401, 'MISSING_TOKEN'));
+    }
+    try {
+      const payload = jwt.verify(token, env.userAccessTokenSecret);
+      if (
+        !payload ||
+        payload.type !== 'access' ||
+        payload.role !== ROLES.COMPANY ||
+        !payload.sub ||
+        payload.tv === undefined
+      ) {
+        return next(createError('Token entreprise invalide', 401, 'INVALID_TOKEN'));
+      }
+
+      const enterprise = await enterpriseRepository.findEnterpriseByIdForAuth(payload.sub);
+      if (
+        !enterprise ||
+        (enterprise.status !== 'active' && enterprise.status !== 'valider') ||
+        enterprise.token_version !== payload.tv
+      ) {
+        return next(createError('Token entreprise invalide ou expiré', 401, 'INVALID_TOKEN'));
+      }
+
+      req.enterprise = {
+        company_id: enterprise.company_id,
+        nom_entreprise: enterprise.nom_entreprise,
+        status: enterprise.status,
+      };
+      req.enterpriseAuth = {
+        company_id: enterprise.company_id,
+        token_version: payload.tv,
+        role: ROLES.COMPANY,
+      };
+      return next();
+    } catch {
+      return next(createError('Token entreprise invalide ou expiré', 401, 'INVALID_TOKEN'));
+    }
+  }
+
+  return requireEnterpriseApiKey(req, res, next);
+}
+
 module.exports = {
   requireEnterpriseApiKey,
+  requireEnterpriseAuth,
 };

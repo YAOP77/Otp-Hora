@@ -2,6 +2,8 @@ const { randomUUID } = require('crypto');
 const bcrypt = require('bcrypt');
 const usersRepository = require('./users.repository');
 const { createError } = require('../../common/errors');
+const { normalizeToE164, ROLES } = require('../../common/phone');
+const { formatLoginHistoryLabel } = require('../../common/loginHistoryFormat');
 const {
   signUserAccessToken,
   signUserRefreshToken,
@@ -11,6 +13,7 @@ const {
 const PIN_REGEX = /^\d{4,6}$/;
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LOGIN_HISTORY_LIMIT = 5;
 
 function validatePin(pin) {
   if (typeof pin !== 'string' || !PIN_REGEX.test(pin.trim())) {
@@ -18,6 +21,15 @@ function validatePin(pin) {
     error.statusCode = 400;
     throw error;
   }
+}
+
+async function recordUserLogin(userId, deviceMeta) {
+  await usersRepository.createUserLoginHistory({
+    history_id: randomUUID(),
+    user_id: userId,
+    device_name: deviceMeta.device_name || null,
+    user_agent: deviceMeta.user_agent || null,
+  });
 }
 
 async function createUser(payload) {
@@ -48,7 +60,10 @@ async function createUser(payload) {
     pin_hash,
     token_version: 0,
     status: 'active',
+    role: ROLES.USER,
   });
+
+  await recordUserLogin(createdUser.user_id, payload.device_meta || {});
 
   return {
     user: createdUser,
@@ -61,16 +76,19 @@ async function createUser(payload) {
 }
 
 async function loginUser(payload) {
-  const phoneNumber =
-    typeof payload?.phone_number === 'string' ? payload.phone_number.trim() : '';
+  const phoneRaw =
+    typeof payload?.phone_number === 'string'
+      ? payload.phone_number
+      : payload?.phone ?? payload?.contact;
   const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
 
-  if (!phoneNumber) {
+  if (!phoneRaw || typeof phoneRaw !== 'string') {
     throw createError('Le champ phone_number est obligatoire', 400, 'INVALID_INPUT');
   }
 
   validatePin(pin);
 
+  const phoneNumber = normalizeToE164(phoneRaw.trim());
   const user = await usersRepository.findUserForLoginByPhone(phoneNumber);
   if (!user || user.status !== 'active') {
     throw createError('Identifiants invalides', 401, 'INVALID_CREDENTIALS');
@@ -81,13 +99,57 @@ async function loginUser(payload) {
     throw createError('Identifiants invalides', 401, 'INVALID_CREDENTIALS');
   }
 
+  await recordUserLogin(user.user_id, payload.device_meta || {});
+
   return {
     user: {
       user_id: user.user_id,
       nom: user.nom,
       prenom: user.prenom,
       status: user.status,
+      role: user.role || ROLES.USER,
     },
+    auth: {
+      access_token: signUserAccessToken(user.user_id, user.token_version),
+      refresh_token: signUserRefreshToken(user.user_id, user.token_version),
+      token_type: 'Bearer',
+    },
+  };
+}
+
+async function unlockUserSession(payload) {
+  const pin = typeof payload?.pin === 'string' ? payload.pin.trim() : '';
+  const refreshToken =
+    typeof payload?.refresh_token === 'string' ? payload.refresh_token.trim() : '';
+
+  if (!refreshToken) {
+    throw createError('Le champ refresh_token est obligatoire', 400, 'INVALID_INPUT');
+  }
+  validatePin(pin);
+
+  const tokenPayload = verifyUserRefreshToken(refreshToken);
+  const user = await usersRepository.findUserById(tokenPayload.sub);
+  if (!user || user.status !== 'active') {
+    throw createError('Session invalide', 401, 'INVALID_SESSION');
+  }
+
+  if (user.token_version !== tokenPayload.tv) {
+    throw createError('Refresh token invalide ou expiré', 401, 'INVALID_REFRESH_TOKEN');
+  }
+
+  const profile = await usersRepository.findUserProfileById(user.user_id);
+  if (!profile) {
+    throw createError('Utilisateur introuvable', 404, 'USER_NOT_FOUND');
+  }
+
+  const isValidPin = await bcrypt.compare(pin, profile.pin_hash);
+  if (!isValidPin) {
+    throw createError('PIN incorrect', 401, 'INVALID_PIN');
+  }
+
+  await recordUserLogin(user.user_id, payload.device_meta || {});
+
+  return {
     auth: {
       access_token: signUserAccessToken(user.user_id, user.token_version),
       refresh_token: signUserRefreshToken(user.user_id, user.token_version),
@@ -130,7 +192,9 @@ async function getUserProfile(payload) {
     nom: user.nom,
     prenom: user.prenom,
     status: user.status,
+    role: user.role || ROLES.USER,
     contacts: user.user_contacts,
+    devices: user.user_devices,
     linked_accounts_count: linkedAccounts.length,
     linked_accounts: linkedAccounts,
     pin_hash: includePinHash ? user.pin_hash : undefined,
@@ -238,12 +302,28 @@ async function deleteUser(payload) {
   }
 }
 
+async function listUserLoginHistory(userId) {
+  if (!userId || !UUID_REGEX.test(userId)) {
+    throw createError('Le parametre user_id doit etre un UUID valide', 400, 'INVALID_UUID');
+  }
+
+  const rows = await usersRepository.listUserLoginHistory(userId, LOGIN_HISTORY_LIMIT);
+  return rows.map((h) => ({
+    history_id: h.history_id,
+    label: formatLoginHistoryLabel(h.device_name, h.connected_at),
+    device_name: h.device_name,
+    connected_at: h.connected_at,
+  }));
+}
+
 module.exports = {
   createUser,
   loginUser,
+  unlockUserSession,
   getUserProfile,
   refreshUserToken,
   logoutUser,
   updateUser,
   deleteUser,
+  listUserLoginHistory,
 };

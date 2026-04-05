@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API entreprise (bcrypt), renvoyée en clair une seule fois lors de `POST /enterprises`.\n- `access_token` / `refresh_token` : émis après `POST /users` ou `POST /users/login`.\n\n**Flux recommandé (spec)**\n1. `POST /enterprises` → `api_key` (onboarding partenaire, sans `x-api-key`).\n2. `POST /users` (inscription) ou `POST /users/login` (connexion) → `user_id` + tokens.\n3. `GET /users/:user_id` (Bearer token) ; `POST /users/refresh-token` si nécessaire.\n4. Contacts / devices / recovery (sans `x-api-key`).\n5. `POST /links` avec `x-api-key` → demande de lien `pending` + `link_id`.\n6. `POST /links/confirm` (Bearer token) → lien `active`.\n7. `POST /auth/request` avec `x-api-key` → `auth_request_id`.\n8. `POST /auth/approve|reject` (Bearer token + `user_id`) — action utilisateur.\n9. `GET /auth/status` / `GET /auth/events` avec `x-api-key` (entreprise).\n\n**Note** : `GET /links` n'est pas implémenté (404 attendue).",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links`, `auth/*` (serveur) acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises` (legacy) ou `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison : `POST /links` → `POST /links/confirm` → `auth/request` → approve/reject.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -17,7 +17,9 @@
     { "key": "recovery_id", "value": "" },
     { "key": "external_ref", "value": "ext-user-001" },
     { "key": "access_token", "value": "" },
-    { "key": "refresh_token", "value": "" }
+    { "key": "refresh_token", "value": "" },
+    { "key": "company_access_token", "value": "" },
+    { "key": "company_refresh_token", "value": "" }
   ],
   "item": [
     {
@@ -56,15 +58,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nom_entreprise\": \"Demo Enterprise\"\n}"
             },
             "url": "{{base_url}}/enterprises",
-            "description": "Crée un compte entreprise sans authentification préalable en V1. Réponse 201 : `data.company_id`, `data.api_key` (une seule fois), `status` sans hash."
+            "description": "Onboarding partenaire legacy : `nom_entreprise` uniquement. Réponse 201 : `data.company_id`, `data.api_key` (une seule fois en clair). Pas d'authentification préalable."
           },
           "event": [
             {
@@ -93,6 +94,113 @@
               }
             }
           ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Register (téléphone + PIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_entreprise\": \"Ma Société CI\",\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/register",
+            "description": "Inscription entreprise avec numéro international (E.164). Réponse 201 : `data` (profil), `api_key` (B2B), `auth` (access + refresh tokens entreprise). Exemple erreur : `PHONE_ALREADY_REGISTERED` (409)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Login (téléphone + PIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/login",
+            "description": "Connexion application entreprise. Réponse 200 : `data` + `auth` (Bearer). En-têtes optionnels : `User-Agent`, `X-Device-Name` pour l'historique."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.auth && j.auth.access_token) {",
+                  "    pm.collectionVariables.set('company_access_token', j.auth.access_token);",
+                  "    pm.collectionVariables.set('company_refresh_token', j.auth.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/refresh-token",
+            "description": "Renouvelle les tokens JWT entreprise (refresh token avec role company)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Session unlock (PIN seulement)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/session/unlock",
+            "description": "Après retour sur l'app : vérifie le PIN avec le refresh token valide, réémet access + refresh. Exemple erreur : `INVALID_PIN` (401)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Me (profil, appareils, liens, historique)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Profil entreprise authentifié par JWT : téléphone masqué côté logique liste dans `phone_e164`, `devices`, `linked_users`, `login_history` (5 dernières avec `label` formaté FR)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Login history",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "url": "{{base_url}}/enterprises/me/login-history",
+            "description": "Sous-ensemble : `login_history` avec libellés du type « Samsung - Lundi 1 janvier à 12:00 »."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Register device",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_fingerprint\": \"enterprise-fp-001\",\n  \"device_name\": \"MacBook Pro\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me/devices",
+            "description": "Associe un appareil au compte entreprise (empreinte unique par société)."
+          }
         }
       ]
     },
@@ -104,8 +212,7 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -193,6 +300,30 @@
           ]
         },
         {
+          "name": "[UTILISATEUR] POST Session unlock (PIN seulement)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/users/session/unlock",
+            "description": "Réouverture app : refresh token encore valide + PIN → nouveaux access/refresh sans refaire un login téléphone complet."
+          }
+        },
+        {
+          "name": "[UTILISATEUR] GET Login history",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+            ],
+            "url": "{{base_url}}/users/me/login-history",
+            "description": "5 dernières connexions avec `label` en français (appareil + date/heure)."
+          }
+        },
+        {
           "name": "[UTILISATEUR] GET User profile",
           "request": {
             "method": "GET",
@@ -224,8 +355,7 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
@@ -405,14 +535,15 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{access_token}}" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"device_fingerprint\": \"fp-demo-001\"\n}"
+              "raw": "{\n  \"device_fingerprint\": \"fp-demo-001\",\n  \"device_name\": \"Samsung Note 5\"\n}"
             },
             "url": "{{base_url}}/devices",
-            "description": "Enregistre un appareil pour l'utilisateur (`trusted: false` par défaut)."
+            "description": "Enregistre un appareil pour l'utilisateur authentifié (Bearer obligatoire). `device_name` ou en-tête `X-Device-Name` / `User-Agent` pour l'historique."
           },
           "event": [
             {

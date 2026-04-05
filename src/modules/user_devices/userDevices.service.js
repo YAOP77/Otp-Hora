@@ -1,7 +1,7 @@
 const { randomUUID } = require('crypto');
 const userDevicesRepository = require('./userDevices.repository');
 
-async function createDevice(payload) {
+async function registerDevice(payload) {
   const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
   const deviceFingerprint =
     typeof payload?.device_fingerprint === 'string'
@@ -9,7 +9,7 @@ async function createDevice(payload) {
       : '';
 
   if (!userId) {
-    const error = new Error('Le champ user_id est obligatoire');
+    const error = new Error('Le contexte utilisateur est obligatoire');
     error.statusCode = 400;
     throw error;
   }
@@ -27,14 +27,18 @@ async function createDevice(payload) {
     throw error;
   }
 
-  return userDevicesRepository.createDevice({
+  const now = new Date();
+  return userDevicesRepository.upsertUserDevice({
     device_id: randomUUID(),
     user_id: userId,
     device_fingerprint: deviceFingerprint,
     trusted: false,
+    device_name: payload.device_name || null,
+    user_agent: payload.user_agent || null,
+    last_seen_at: now,
   });
 }
 
 module.exports = {
-  createDevice,
+  registerDevice,
 };
