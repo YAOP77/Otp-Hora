@@ -31,6 +31,14 @@ const env = {
   pinResetTokenTtlMinutes:
     Number.parseInt(process.env.PIN_RESET_TOKEN_TTL_MINUTES, 10) || 15,
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://app.otp-hora.example',
+  flowStateSecret:
+    process.env.FLOW_STATE_SECRET || 'dev_flow_state_secret_change_me',
+  flowStateTtl:
+    Number.parseInt(process.env.FLOW_STATE_TTL_SECONDS, 10) || 15 * 60,
+  flowAllowedCallbackOrigins:
+    process.env.FLOW_ALLOWED_CALLBACK_ORIGINS
+      ? process.env.FLOW_ALLOWED_CALLBACK_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+      : [],
 };
 
 module.exports = { env };

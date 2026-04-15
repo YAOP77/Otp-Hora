@@ -8,6 +8,7 @@ const { requestId } = require('./common/requestId');
 const logger = require('./common/logger');
 const { notFoundHandler, errorHandler } = require('./common/errorHandler');
 const { registerRoutes } = require('./modules');
+const { registerWebFlowRoutes } = require('./webFlow');
 
 function createApp() {
   const app = express();
@@ -62,6 +63,7 @@ function createApp() {
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   registerRoutes(app);
+  registerWebFlowRoutes(app);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
