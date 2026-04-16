@@ -59,19 +59,21 @@ function isAllowedCallbackUrl(raw) {
   } catch {
     return false;
   }
-  if (u.protocol !== 'https:' && !(env.nodeEnv !== 'production' && u.protocol === 'http:')) {
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') {
     return false;
   }
-  if (env.flowAllowedCallbackOrigins.length === 0) {
-    // Default: allow only PUBLIC_APP_URL origin when no allowlist configured
-    try {
-      const allowed = new URL(env.publicAppUrl);
-      return u.origin === allowed.origin;
-    } catch {
-      return false;
-    }
+  // Si une allowlist est configurée, l'origin doit y figurer (http ou https).
+  // La sécurité repose sur la liste elle-même, pas sur le protocole.
+  if (env.flowAllowedCallbackOrigins.length > 0) {
+    return env.flowAllowedCallbackOrigins.includes(u.origin);
   }
-  return env.flowAllowedCallbackOrigins.includes(u.origin);
+  // Fallback : autoriser uniquement l'origin de PUBLIC_APP_URL
+  try {
+    const allowed = new URL(env.publicAppUrl);
+    return u.origin === allowed.origin;
+  } catch {
+    return false;
+  }
 }
 
 function registerWebFlowRoutes(app) {
