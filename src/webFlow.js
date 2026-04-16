@@ -84,23 +84,26 @@ function registerWebFlowRoutes(app) {
       typeof req.query?.request_id === 'string' ? req.query.request_id.trim() : '';
     const callback_url =
       typeof req.query?.callback_url === 'string' ? req.query.callback_url.trim() : '';
-    const state = typeof req.query?.state === 'string' ? req.query.state.trim() : '';
+    // Le paramètre "state" dans l'URL est le state externe de l'app appelante (ex: Ngoni).
+    // Il sera retransmis tel quel dans le callback redirect. Ce n'est PAS le state JWT interne Hora.
+    const externalState = typeof req.query?.state === 'string' ? req.query.state.trim() : '';
 
-    let resolved = null;
-    if (state) {
-      resolved = verifyFlowState(state);
-    } else {
-      if (!isUuid(link_id)) {
-        throw createError('link_id doit être un UUID valide', 400, 'INVALID_UUID');
-      }
-      if (!isUuid(request_id)) {
-        throw createError('request_id doit être un UUID valide', 400, 'INVALID_UUID');
-      }
-      if (callback_url && !isAllowedCallbackUrl(callback_url)) {
-        throw createError('callback_url non autorisée', 400, 'INVALID_CALLBACK_URL');
-      }
-      resolved = { link_id, request_id, callback_url: callback_url || null };
+    if (!isUuid(link_id)) {
+      throw createError('link_id doit être un UUID valide', 400, 'INVALID_UUID');
     }
+    if (request_id && !isUuid(request_id)) {
+      throw createError('request_id doit être un UUID valide', 400, 'INVALID_UUID');
+    }
+    if (callback_url && !isAllowedCallbackUrl(callback_url)) {
+      throw createError('callback_url non autorisée', 400, 'INVALID_CALLBACK_URL');
+    }
+
+    const resolved = {
+      link_id,
+      request_id: request_id || null,
+      callback_url: callback_url || null,
+      external_state: externalState || null,
+    };
 
     const signedState = signFlowState(resolved);
 
@@ -119,7 +122,7 @@ function registerWebFlowRoutes(app) {
             </div>
             <div>
               <label>request_id (UUID)</label>
-              <input name="request_id" value="${escapeHtml(resolved.request_id)}" required readonly />
+              <input name="request_id" value="${escapeHtml(resolved.request_id || '')}" readonly />
             </div>
           </div>
           <label>callback_url</label>
@@ -152,7 +155,7 @@ function registerWebFlowRoutes(app) {
       const pin = req.body?.pin;
 
       if (!isUuid(link_id)) throw createError('link_id invalide', 400, 'INVALID_UUID');
-      if (!isUuid(request_id)) throw createError('request_id invalide', 400, 'INVALID_UUID');
+      if (request_id && !isUuid(request_id)) throw createError('request_id invalide', 400, 'INVALID_UUID');
       if (!phone_number) throw createError('phone_number est obligatoire', 400, 'INVALID_INPUT');
       if (callback_url && !isAllowedCallbackUrl(callback_url)) {
         throw createError('callback_url non autorisée', 400, 'INVALID_CALLBACK_URL');
@@ -174,7 +177,12 @@ function registerWebFlowRoutes(app) {
         requester_user_id: user_id,
       });
 
-      const nextState = signFlowState({ link_id, request_id, callback_url: callback_url || null });
+      const nextState = signFlowState({
+        link_id,
+        request_id: request_id || null,
+        callback_url: callback_url || null,
+        external_state: st.external_state || null,
+      });
       res.type('text/html').send(
         page(
           'Hora — Approuver / Rejeter',
@@ -249,6 +257,10 @@ function registerWebFlowRoutes(app) {
         u.searchParams.set('hora_status', result?.status || '');
         u.searchParams.set('hora_request_id', request_id);
         u.searchParams.set('hora_link_id', st.link_id);
+        // Retransmettre le state externe de l'app appelante pour qu'elle puisse valider le CSRF
+        if (st.external_state) {
+          u.searchParams.set('state', st.external_state);
+        }
         return res.redirect(302, u.toString());
       }
 

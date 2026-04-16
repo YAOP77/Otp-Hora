@@ -9,6 +9,7 @@ function signFlowState(payload) {
       link_id: payload.link_id,
       request_id: payload.request_id,
       callback_url: payload.callback_url || null,
+      external_state: payload.external_state || null,
     },
     env.flowStateSecret,
     { expiresIn: env.flowStateTtl },
@@ -21,8 +22,7 @@ function verifyFlowState(state) {
     if (
       !decoded ||
       decoded.type !== 'flow_state' ||
-      !decoded.link_id ||
-      !decoded.request_id
+      !decoded.link_id
     ) {
       throw createError('State invalide', 400, 'INVALID_STATE');
     }
