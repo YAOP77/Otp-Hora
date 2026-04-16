@@ -4,6 +4,7 @@ const usersService = require('./modules/users/users.service');
 const identityLinksService = require('./modules/identity_links/identityLinks.service');
 const authRequestsService = require('./modules/auth_requests/authRequests.service');
 const { createError } = require('./common/errors');
+const identityLinksRepository = require('./modules/identity_links/identityLinks.repository');
 const { signFlowState, verifyFlowState } = require('./common/flowState');
 const { env } = require('./config/env');
 
@@ -172,12 +173,24 @@ function registerWebFlowRoutes(app) {
       const user_id = login?.user?.user_id;
       if (!user_id) throw createError('Impossible de résoudre user_id', 500, 'INTERNAL_ERROR');
 
-      // 1) Confirmer le link
-      const link = await identityLinksService.confirmIdentityLink({
-        link_id,
-        user_id,
-        requester_user_id: user_id,
-      });
+      // 1) Confirmer le link (ou récupérer le link existant si déjà confirmé)
+      let link;
+      try {
+        link = await identityLinksService.confirmIdentityLink({
+          link_id,
+          user_id,
+          requester_user_id: user_id,
+        });
+      } catch (err) {
+        // Si le link est déjà actif (confirmé précédemment ou link existant pour ce user+company),
+        // on continue le flow au lieu de bloquer l'utilisateur
+        if (err.code === 'LINK_NOT_PENDING' || err.code === 'LINK_ALREADY_EXISTS' || err.code === 'LINK_ALREADY_BOUND') {
+          link = await identityLinksRepository.findByLinkIdFull(link_id);
+          if (!link) throw err; // fallback si vraiment introuvable
+        } else {
+          throw err;
+        }
+      }
 
       // Si pas de request_id, le flow s'arrête ici : link confirmé, redirect vers callback
       if (!request_id) {

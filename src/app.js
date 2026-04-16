@@ -18,20 +18,10 @@ function createApp() {
 
   app.use(requestId);
 
-  // Helmet avec CSP adapté : les routes /flow servent du HTML avec des formulaires
+  // Helmet : pas de CSP pour /flow (pages HTML avec formulaires, CSRF protégé par JWT state)
   app.use((req, res, next) => {
     if (req.path.startsWith('/flow')) {
-      return helmet({
-        contentSecurityPolicy: {
-          directives: {
-            defaultSrc: ["'self'"],
-            scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            formAction: ["'self'"],
-            frameAncestors: ["'none'"],
-          },
-        },
-      })(req, res, next);
+      return helmet({ contentSecurityPolicy: false })(req, res, next);
     }
     return helmet()(req, res, next);
   });
