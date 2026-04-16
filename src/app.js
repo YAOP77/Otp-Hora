@@ -18,21 +18,23 @@ function createApp() {
 
   app.use(requestId);
 
-  // CSP assoupli pour les pages web du flow de consentement (formulaires HTML)
-  app.use('/flow', helmet({
-    contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        formAction: ["'self'"],
-        frameAncestors: ["'none'"],
-      },
-    },
-  }));
-
-  // CSP strict pour toutes les routes API
-  app.use(helmet());
+  // Helmet avec CSP adapté : les routes /flow servent du HTML avec des formulaires
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/flow')) {
+      return helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            formAction: ["'self'"],
+            frameAncestors: ["'none'"],
+          },
+        },
+      })(req, res, next);
+    }
+    return helmet()(req, res, next);
+  });
   app.use(
     cors({
       origin: process.env.CORS_ORIGIN
