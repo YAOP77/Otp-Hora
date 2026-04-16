@@ -6,6 +6,7 @@
     "_postman_id": "otp-hora-backend-v1"
   },
   "variable": [
+    { "key": "host_url", "value": "https://otp-hora.onrender.com" },
     { "key": "base_url", "value": "https://otp-hora.onrender.com/api" },
     { "key": "api_key", "value": "" },
     { "key": "user_id", "value": "" },
@@ -47,6 +48,71 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "NEW AUTH FLOW (x-api-key + redirect)",
+      "description": "Flux recommandé : l’entreprise utilise **uniquement x-api-key** (pas de Bearer company) pour créer `link_id` puis `request_id`, puis l’utilisateur est redirigé vers la page web Hora `/flow/consent`.\n\nPré-requis : renseigner `api_key`, `external_ref`, `link_id`, `auth_request_id` et `host_url` si besoin.",
+      "item": [
+        {
+          "name": "[ENTREPRISE] POST Create Link (x-api-key) — /api/links",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"external_ref\": \"{{external_ref}}\"\n}"
+            },
+            "url": "{{base_url}}/links",
+            "description": "Crée une liaison `pending` pour l’utilisateur externe (external_ref). Réponse 201: `data.link_id`."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Create Auth Request (x-api-key) — /api/auth/request",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-api-key", "value": "{{api_key}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"link_id\": \"{{link_id}}\"\n}"
+            },
+            "url": "{{base_url}}/auth/request",
+            "description": "Crée une demande d’auth `pending` liée au `link_id`. Réponse 201: `data.request_id` + `expires_at`."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Auth Status (x-api-key) — /api/auth/status/:request_id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{api_key}}" }],
+            "url": "{{base_url}}/auth/status/{{auth_request_id}}",
+            "description": "Permet de suivre l’état: pending/approved/rejected/expired."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Auth Events (x-api-key) — /api/auth/events/:request_id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "x-api-key", "value": "{{api_key}}" }],
+            "url": "{{base_url}}/auth/events/{{auth_request_id}}",
+            "description": "Audit trail (created/approved/rejected)."
+          }
+        },
+        {
+          "name": "[USER] OPEN Consent UI (redirect) — /flow/consent",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{host_url}}/flow/consent?link_id={{link_id}}&request_id={{auth_request_id}}&callback_url={{host_url}}",
+            "description": "Page web Hora : l’utilisateur se connecte (téléphone+PIN), confirme la liaison et approuve/rejette. En prod, `callback_url` doit être une URL Ngoni autorisée."
+          }
         }
       ]
     },
