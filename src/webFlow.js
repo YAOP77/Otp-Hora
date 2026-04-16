@@ -179,9 +179,34 @@ function registerWebFlowRoutes(app) {
         requester_user_id: user_id,
       });
 
+      // Si pas de request_id, le flow s'arrête ici : link confirmé, redirect vers callback
+      if (!request_id) {
+        if (callback_url && isAllowedCallbackUrl(callback_url)) {
+          const u = new URL(callback_url);
+          u.searchParams.set('hora_status', 'link_confirmed');
+          u.searchParams.set('hora_link_id', link_id);
+          if (st.external_state) {
+            u.searchParams.set('state', st.external_state);
+          }
+          return res.redirect(302, u.toString());
+        }
+        return res.type('text/html').send(
+          page(
+            'Hora — Liaison confirmée',
+            `
+            <h2>Connexion OK</h2>
+            <p class="muted">Utilisateur Hora: <code>${escapeHtml(user_id)}</code></p>
+            <h3>Liaison confirmée</h3>
+            <pre>${escapeHtml(JSON.stringify(link, null, 2))}</pre>
+            <p class="muted">Aucune demande d'authentification à traiter (pas de <code>request_id</code>).</p>
+            `,
+          ),
+        );
+      }
+
       const nextState = signFlowState({
         link_id,
-        request_id: request_id || null,
+        request_id,
         callback_url: callback_url || null,
         external_state: st.external_state || null,
       });
