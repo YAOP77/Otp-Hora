@@ -5,7 +5,12 @@ const identityLinksService = require('./modules/identity_links/identityLinks.ser
 const authRequestsService = require('./modules/auth_requests/authRequests.service');
 const { createError } = require('./common/errors');
 const identityLinksRepository = require('./modules/identity_links/identityLinks.repository');
-const { signFlowState, verifyFlowState } = require('./common/flowState');
+const {
+  signFlowState,
+  verifyFlowState,
+  signFlowUserToken,
+  verifyFlowUserToken,
+} = require('./common/flowState');
 const { env } = require('./config/env');
 
 function escapeHtml(s) {
@@ -63,12 +68,9 @@ function isAllowedCallbackUrl(raw) {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') {
     return false;
   }
-  // Si une allowlist est configurée, l'origin doit y figurer (http ou https).
-  // La sécurité repose sur la liste elle-même, pas sur le protocole.
   if (env.flowAllowedCallbackOrigins.length > 0) {
     return env.flowAllowedCallbackOrigins.includes(u.origin);
   }
-  // Fallback : autoriser uniquement l'origin de PUBLIC_APP_URL
   try {
     const allowed = new URL(env.publicAppUrl);
     return u.origin === allowed.origin;
@@ -77,71 +79,117 @@ function isAllowedCallbackUrl(raw) {
   }
 }
 
+// Génère le HTML du formulaire approve/reject
+function approveRejectPage(signedState, request_id, user_id, linkInfo) {
+  return page(
+    'Hora — Approuver / Rejeter',
+    `
+    <h2>Hora — Consentement</h2>
+    <p class="muted">Utilisateur Hora: <code>${escapeHtml(user_id)}</code></p>
+    ${linkInfo ? `<h3>Liaison</h3><pre>${escapeHtml(JSON.stringify(linkInfo, null, 2))}</pre>` : ''}
+    <h3>Demande d'authentification</h3>
+    <p class="muted">Voulez-vous autoriser cette demande ?</p>
+    <form method="post" action="/flow/consent/resolve">
+      <input type="hidden" name="state" value="${escapeHtml(signedState)}" />
+      <input type="hidden" name="request_id" value="${escapeHtml(request_id)}" />
+      <input type="hidden" name="user_id" value="${escapeHtml(user_id)}" />
+      <div class="row">
+        <div>
+          <label>Action</label>
+          <select name="action">
+            <option value="approve">approve</option>
+            <option value="reject">reject</option>
+          </select>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button type="submit">Valider</button>
+        </div>
+      </div>
+    </form>
+    `,
+  );
+}
+
 function registerWebFlowRoutes(app) {
   const router = Router();
 
-  // Entrée : page de consentement "hora" (login user + confirmation link + approve/reject request)
-  router.get('/flow/consent', (req, res) => {
-    const link_id = typeof req.query?.link_id === 'string' ? req.query.link_id.trim() : '';
-    const request_id =
-      typeof req.query?.request_id === 'string' ? req.query.request_id.trim() : '';
-    const callback_url =
-      typeof req.query?.callback_url === 'string' ? req.query.callback_url.trim() : '';
-    // Le paramètre "state" dans l'URL est le state externe de l'app appelante (ex: Ngoni).
-    // Il sera retransmis tel quel dans le callback redirect. Ce n'est PAS le state JWT interne Hora.
-    const externalState = typeof req.query?.state === 'string' ? req.query.state.trim() : '';
+  // ─── GET /flow/consent ───────────────────────────────────────────────
+  // Si hora_token est valide ET request_id est présent → affiche directement approve/reject
+  // Sinon → affiche le formulaire login (phone + PIN)
+  router.get('/flow/consent', async (req, res, next) => {
+    try {
+      const link_id = typeof req.query?.link_id === 'string' ? req.query.link_id.trim() : '';
+      const request_id =
+        typeof req.query?.request_id === 'string' ? req.query.request_id.trim() : '';
+      const callback_url =
+        typeof req.query?.callback_url === 'string' ? req.query.callback_url.trim() : '';
+      const externalState = typeof req.query?.state === 'string' ? req.query.state.trim() : '';
+      const horaToken = typeof req.query?.hora_token === 'string' ? req.query.hora_token.trim() : '';
 
-    if (!isUuid(link_id)) {
-      throw createError('link_id doit être un UUID valide', 400, 'INVALID_UUID');
+      if (!isUuid(link_id)) {
+        throw createError('link_id doit être un UUID valide', 400, 'INVALID_UUID');
+      }
+      if (request_id && !isUuid(request_id)) {
+        throw createError('request_id doit être un UUID valide', 400, 'INVALID_UUID');
+      }
+      if (callback_url && !isAllowedCallbackUrl(callback_url)) {
+        throw createError('callback_url non autorisée', 400, 'INVALID_CALLBACK_URL');
+      }
+
+      // Si on a un hora_token valide + request_id → l'utilisateur est déjà authentifié,
+      // afficher directement le formulaire approve/reject sans redemander le login
+      if (horaToken && request_id) {
+        const userToken = verifyFlowUserToken(horaToken);
+        if (userToken) {
+          const link = await identityLinksRepository.findByLinkIdFull(link_id);
+          if (link && link.status === 'active' && link.user_id === userToken.user_id) {
+            const signedState = signFlowState({
+              link_id,
+              request_id,
+              callback_url: callback_url || null,
+              external_state: externalState || null,
+            });
+            return res.type('text/html').send(
+              approveRejectPage(signedState, request_id, userToken.user_id, link),
+            );
+          }
+        }
+        // hora_token invalide/expiré → fallback vers le formulaire login
+      }
+
+      const resolved = {
+        link_id,
+        request_id: request_id || null,
+        callback_url: callback_url || null,
+        external_state: externalState || null,
+      };
+
+      const signedState = signFlowState(resolved);
+
+      res.type('text/html').send(
+        page(
+          'Hora — Consentement',
+          `
+          <h2>Hora — Consentement</h2>
+          <p class="muted">Connectez-vous avec votre compte Hora pour continuer.</p>
+          <form method="post" action="/flow/consent/login">
+            <input type="hidden" name="state" value="${escapeHtml(signedState)}" />
+            <label>Téléphone Hora (E.164)</label>
+            <input name="phone_number" placeholder="+2250700000000" required />
+            <label>PIN Hora (4–6 chiffres)</label>
+            <input name="pin" type="password" inputmode="numeric" placeholder="1234" required />
+            <button type="submit" style="margin-top:16px;background:#2563eb;color:#fff;border:none">Se connecter</button>
+          </form>
+          `,
+        ),
+      );
+    } catch (err) {
+      return next(err);
     }
-    if (request_id && !isUuid(request_id)) {
-      throw createError('request_id doit être un UUID valide', 400, 'INVALID_UUID');
-    }
-    if (callback_url && !isAllowedCallbackUrl(callback_url)) {
-      throw createError('callback_url non autorisée', 400, 'INVALID_CALLBACK_URL');
-    }
-
-    const resolved = {
-      link_id,
-      request_id: request_id || null,
-      callback_url: callback_url || null,
-      external_state: externalState || null,
-    };
-
-    const signedState = signFlowState(resolved);
-
-    res.type('text/html').send(
-      page(
-        'Hora — Consentement',
-        `
-        <h2>Hora — Consentement</h2>
-        <p class="muted">Cette page permet à un utilisateur Hora de se connecter, confirmer un <code>link_id</code> puis approuver/rejeter une <code>request_id</code>.</p>
-        <form method="post" action="/flow/consent/login">
-          <input type="hidden" name="state" value="${escapeHtml(signedState)}" />
-          <div class="row">
-            <div>
-              <label>link_id (UUID)</label>
-              <input name="link_id" value="${escapeHtml(resolved.link_id)}" required readonly />
-            </div>
-            <div>
-              <label>request_id (UUID)</label>
-              <input name="request_id" value="${escapeHtml(resolved.request_id || '')}" readonly />
-            </div>
-          </div>
-          <label>callback_url</label>
-          <input name="callback_url" value="${escapeHtml(resolved.callback_url || '')}" readonly />
-          <label>Téléphone Hora (E.164)</label>
-          <input name="phone_number" placeholder="+2250700000000" required />
-          <label>PIN Hora (4–6 chiffres)</label>
-          <input name="pin" inputmode="numeric" placeholder="1234" required />
-          <button type="submit">Se connecter</button>
-        </form>
-        <p class="muted">Note: aucun token n'est demandé dans l'URL ou le body. Auth utilisateur = login Hora via téléphone + PIN. Un <code>state</code> signé (anti-CSRF) est utilisé pour transporter <code>link_id</code>/<code>request_id</code>/<code>callback_url</code>.</p>
-        `,
-      ),
-    );
   });
 
+  // ─── POST /flow/consent/login ────────────────────────────────────────
   router.post('/flow/consent/login', async (req, res, next) => {
     try {
       const state = typeof req.body?.state === 'string' ? req.body.state.trim() : '';
@@ -182,31 +230,30 @@ function registerWebFlowRoutes(app) {
           requester_user_id: user_id,
         });
       } catch (err) {
-        // Si le link est déjà actif (confirmé précédemment ou link existant pour ce user+company),
-        // on continue le flow au lieu de bloquer l'utilisateur
         if (err.code === 'LINK_NOT_PENDING' || err.code === 'LINK_ALREADY_BOUND') {
-          // Le link_id actuel est déjà actif, on le récupère
           link = await identityLinksRepository.findByLinkIdFull(link_id);
           if (!link) throw err;
         } else if (err.code === 'LINK_ALREADY_EXISTS') {
-          // Un AUTRE link actif existe pour ce user+company, on récupère celui-là
           const currentLink = await identityLinksRepository.findByLinkIdFull(link_id);
           if (!currentLink) throw err;
           link = await identityLinksRepository.findActiveLinkByUserAndCompany(user_id, currentLink.company_id);
           if (!link) throw err;
-          // Mettre à jour link_id pour le reste du flow (callback, etc.)
           link_id = link.link_id;
         } else {
           throw err;
         }
       }
 
-      // Si pas de request_id, le flow s'arrête ici : link confirmé, redirect vers callback
+      // Token court (5 min) pour identifier l'utilisateur lors du 2ème passage
+      const horaToken = signFlowUserToken(user_id);
+
+      // Si pas de request_id → redirect vers callback avec hora_token
       if (!request_id) {
         if (callback_url && isAllowedCallbackUrl(callback_url)) {
           const u = new URL(callback_url);
           u.searchParams.set('hora_status', 'link_confirmed');
           u.searchParams.set('hora_link_id', link_id);
+          u.searchParams.set('hora_token', horaToken);
           if (st.external_state) {
             u.searchParams.set('state', st.external_state);
           }
@@ -220,12 +267,13 @@ function registerWebFlowRoutes(app) {
             <p class="muted">Utilisateur Hora: <code>${escapeHtml(user_id)}</code></p>
             <h3>Liaison confirmée</h3>
             <pre>${escapeHtml(JSON.stringify(link, null, 2))}</pre>
-            <p class="muted">Aucune demande d'authentification à traiter (pas de <code>request_id</code>).</p>
+            <p class="muted">Aucune demande d'authentification à traiter.</p>
             `,
           ),
         );
       }
 
+      // Si request_id présent → afficher directement approve/reject
       const nextState = signFlowState({
         link_id,
         request_id,
@@ -233,41 +281,14 @@ function registerWebFlowRoutes(app) {
         external_state: st.external_state || null,
       });
       res.type('text/html').send(
-        page(
-          'Hora — Approuver / Rejeter',
-          `
-          <h2>Connexion OK</h2>
-          <p class="muted">Utilisateur Hora: <code>${escapeHtml(user_id)}</code></p>
-          <h3>Liaison confirmée</h3>
-          <pre>${escapeHtml(JSON.stringify(link, null, 2))}</pre>
-          <h3>Demande d'authentification</h3>
-          <form method="post" action="/flow/consent/resolve">
-            <input type="hidden" name="state" value="${escapeHtml(nextState)}" />
-            <input type="hidden" name="request_id" value="${escapeHtml(request_id)}" />
-            <input type="hidden" name="user_id" value="${escapeHtml(user_id)}" />
-            <div class="row">
-              <div>
-                <label>Action</label>
-                <select name="action">
-                  <option value="approve">approve</option>
-                  <option value="reject">reject</option>
-                </select>
-              </div>
-              <div>
-                <label>&nbsp;</label>
-                <button type="submit">Valider</button>
-              </div>
-            </div>
-          </form>
-          <p class="muted">Cette page ne stocke pas de token. Elle exécute l'action côté serveur via les services internes.</p>
-          `,
-        ),
+        approveRejectPage(nextState, request_id, user_id, link),
       );
     } catch (err) {
       return next(err);
     }
   });
 
+  // ─── POST /flow/consent/resolve ──────────────────────────────────────
   router.post('/flow/consent/resolve', async (req, res, next) => {
     try {
       const state = typeof req.body?.state === 'string' ? req.body.state.trim() : '';
@@ -299,14 +320,12 @@ function registerWebFlowRoutes(app) {
         throw createError('action invalide (approve/reject)', 400, 'INVALID_INPUT');
       }
 
-      // Redirect back to app if callback_url was provided and allowed.
       const callback_url = st.callback_url;
       if (callback_url && isAllowedCallbackUrl(callback_url)) {
         const u = new URL(callback_url);
         u.searchParams.set('hora_status', result?.status || '');
         u.searchParams.set('hora_request_id', request_id);
         u.searchParams.set('hora_link_id', st.link_id);
-        // Retransmettre le state externe de l'app appelante pour qu'elle puisse valider le CSRF
         if (st.external_state) {
           u.searchParams.set('state', st.external_state);
         }
@@ -319,7 +338,6 @@ function registerWebFlowRoutes(app) {
           `
           <h2>Action enregistrée</h2>
           <pre>${escapeHtml(JSON.stringify(result, null, 2))}</pre>
-          <p><a href="/flow/consent">Revenir</a></p>
           `,
         ),
       );
@@ -328,7 +346,6 @@ function registerWebFlowRoutes(app) {
     }
   });
 
-  // Endpoint de découverte simple (évite 404 quand on tape /flow)
   router.get('/flow', (_req, res) => {
     res.type('text/html').send(
       page(
@@ -336,7 +353,7 @@ function registerWebFlowRoutes(app) {
         `
         <h2>Hora — Flow</h2>
         <ul>
-          <li><a href="/flow/consent">/flow/consent</a> — consentement utilisateur (login, link confirm, approve/reject)</li>
+          <li><a href="/flow/consent">/flow/consent</a> — consentement utilisateur</li>
         </ul>
         `,
       ),
@@ -347,4 +364,3 @@ function registerWebFlowRoutes(app) {
 }
 
 module.exports = { registerWebFlowRoutes };
-

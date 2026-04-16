@@ -33,5 +33,24 @@ function verifyFlowState(state) {
   }
 }
 
-module.exports = { signFlowState, verifyFlowState };
+// Token court (5 min) pour éviter de redemander le login lors du 2ème passage
+function signFlowUserToken(userId) {
+  return jwt.sign(
+    { type: 'flow_user', user_id: userId },
+    env.flowStateSecret,
+    { expiresIn: 300 },
+  );
+}
+
+function verifyFlowUserToken(token) {
+  try {
+    const decoded = jwt.verify(token, env.flowStateSecret);
+    if (!decoded || decoded.type !== 'flow_user' || !decoded.user_id) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { signFlowState, verifyFlowState, signFlowUserToken, verifyFlowUserToken };
 
