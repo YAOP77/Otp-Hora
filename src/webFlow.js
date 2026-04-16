@@ -148,7 +148,7 @@ function registerWebFlowRoutes(app) {
       if (!state) throw createError('state est obligatoire', 400, 'INVALID_STATE');
       const st = verifyFlowState(state);
 
-      const link_id = typeof req.body?.link_id === 'string' ? req.body.link_id.trim() : st.link_id;
+      let link_id = typeof req.body?.link_id === 'string' ? req.body.link_id.trim() : st.link_id;
       const request_id =
         typeof req.body?.request_id === 'string' ? req.body.request_id.trim() : st.request_id;
       const callback_url =
@@ -184,9 +184,18 @@ function registerWebFlowRoutes(app) {
       } catch (err) {
         // Si le link est déjà actif (confirmé précédemment ou link existant pour ce user+company),
         // on continue le flow au lieu de bloquer l'utilisateur
-        if (err.code === 'LINK_NOT_PENDING' || err.code === 'LINK_ALREADY_EXISTS' || err.code === 'LINK_ALREADY_BOUND') {
+        if (err.code === 'LINK_NOT_PENDING' || err.code === 'LINK_ALREADY_BOUND') {
+          // Le link_id actuel est déjà actif, on le récupère
           link = await identityLinksRepository.findByLinkIdFull(link_id);
-          if (!link) throw err; // fallback si vraiment introuvable
+          if (!link) throw err;
+        } else if (err.code === 'LINK_ALREADY_EXISTS') {
+          // Un AUTRE link actif existe pour ce user+company, on récupère celui-là
+          const currentLink = await identityLinksRepository.findByLinkIdFull(link_id);
+          if (!currentLink) throw err;
+          link = await identityLinksRepository.findActiveLinkByUserAndCompany(user_id, currentLink.company_id);
+          if (!link) throw err;
+          // Mettre à jour link_id pour le reste du flow (callback, etc.)
+          link_id = link.link_id;
         } else {
           throw err;
         }
