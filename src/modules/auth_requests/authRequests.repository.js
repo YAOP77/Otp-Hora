@@ -12,6 +12,35 @@ async function findLinkById(linkId) {
   });
 }
 
+async function findLinkByCompanyAndExternalRef(companyId, externalRef) {
+  return prisma.identity_links.findFirst({
+    where: {
+      company_id: companyId,
+      external_ref: externalRef,
+    },
+    select: {
+      link_id: true,
+      company_id: true,
+      user_id: true,
+      status: true,
+      external_ref: true,
+    },
+  });
+}
+
+async function createIdentityLink(data) {
+  return prisma.identity_links.create({
+    data,
+    select: {
+      link_id: true,
+      company_id: true,
+      user_id: true,
+      status: true,
+      external_ref: true,
+    },
+  });
+}
+
 async function createAuthRequest(data) {
   return prisma.auth_requests.create({
     data,
@@ -45,6 +74,21 @@ async function createAuthRequestWithEvent(data) {
 async function findAuthRequestById(requestId) {
   return prisma.auth_requests.findUnique({
     where: { request_id: requestId },
+    select: {
+      request_id: true,
+      link_id: true,
+      status: true,
+      expires_at: true,
+    },
+  });
+}
+
+async function findLatestAuthRequestByLinkId(linkId) {
+  return prisma.auth_requests.findFirst({
+    where: { link_id: linkId },
+    orderBy: {
+      expires_at: 'desc',
+    },
     select: {
       request_id: true,
       link_id: true,
@@ -156,9 +200,12 @@ async function countRecentResolveEventsByUser(userId, since) {
 
 module.exports = {
   findLinkById,
+  findLinkByCompanyAndExternalRef,
+  createIdentityLink,
   createAuthRequest,
   createAuthRequestWithEvent,
   findAuthRequestById,
+  findLatestAuthRequestByLinkId,
   resolveAuthRequestIfPending,
   countRecentAuthRequestsByCompany,
   countRecentResolveEventsByCompany,

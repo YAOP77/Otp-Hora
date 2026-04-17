@@ -6,21 +6,78 @@
     "_postman_id": "otp-hora-backend-v1"
   },
   "variable": [
-    { "key": "host_url", "value": "https://otp-hora.onrender.com" },
-    { "key": "base_url", "value": "https://otp-hora.onrender.com/api" },
-    { "key": "api_key", "value": "" },
-    { "key": "user_id", "value": "" },
-    { "key": "contact_id", "value": "" },
-    { "key": "device_id", "value": "" },
-    { "key": "enterprise_id", "value": "" },
-    { "key": "link_id", "value": "" },
-    { "key": "auth_request_id", "value": "" },
-    { "key": "recovery_id", "value": "" },
-    { "key": "external_ref", "value": "ext-user-001" },
-    { "key": "access_token", "value": "" },
-    { "key": "refresh_token", "value": "" },
-    { "key": "company_access_token", "value": "" },
-    { "key": "company_refresh_token", "value": "" }
+    {
+      "key": "host_url",
+      "value": "https://otp-hora.onrender.com"
+    },
+    {
+      "key": "base_url",
+      "value": "https://otp-hora.onrender.com/api"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "contact_id",
+      "value": ""
+    },
+    {
+      "key": "device_id",
+      "value": ""
+    },
+    {
+      "key": "enterprise_id",
+      "value": ""
+    },
+    {
+      "key": "link_id",
+      "value": ""
+    },
+    {
+      "key": "auth_request_id",
+      "value": ""
+    },
+    {
+      "key": "recovery_id",
+      "value": ""
+    },
+    {
+      "key": "external_ref",
+      "value": "ext-user-001"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "company_access_token",
+      "value": ""
+    },
+    {
+      "key": "company_refresh_token",
+      "value": ""
+    },
+    {
+      "key": "id_user",
+      "value": "x-th-a1"
+    },
+    {
+      "key": "validation_url",
+      "value": ""
+    },
+    {
+      "key": "auth_status",
+      "value": "pending"
+    }
   ],
   "item": [
     {
@@ -53,15 +110,21 @@
     },
     {
       "name": "NEW AUTH FLOW (x-api-key + redirect)",
-      "description": "Flux recommandé : l’entreprise utilise **uniquement x-api-key** (pas de Bearer company) pour créer `link_id` puis `request_id`, puis l’utilisateur est redirigé vers la page web Hora `/flow/consent`.\n\nPré-requis : renseigner `api_key`, `external_ref`, `link_id`, `auth_request_id` et `host_url` si besoin.",
+      "description": "Flux simplifi� : l'entreprise envoie `id_user` + `status=pending` � `/auth/request`, r�cup�re un `validation_url`, puis poll `/auth/status` avec le m�me `id_user`.",
       "item": [
         {
-          "name": "[ENTREPRISE] POST Create Link (x-api-key) — /api/links",
+          "name": "[ENTREPRISE] POST Optional Create Link (legacy) � /api/links",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -72,35 +135,59 @@
           }
         },
         {
-          "name": "[ENTREPRISE] POST Create Auth Request (x-api-key) — /api/auth/request",
+          "name": "[ENTREPRISE] POST Init Link Request (x-api-key) � /api/auth/request",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"link_id\": \"{{link_id}}\"\n}"
+              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
             },
             "url": "{{base_url}}/auth/request",
-            "description": "Crée une demande d’auth `pending` liée au `link_id`. Réponse 201: `data.request_id` + `expires_at`."
+            "description": "Initialise (ou r�utilise) une demande de liaison pour `id_user`. Retourne `request_id`, `status`, `validation_url`."
           }
         },
         {
-          "name": "[ENTREPRISE] GET Auth Status (x-api-key) — /api/auth/status/:request_id",
+          "name": "[ENTREPRISE] POST Poll Auth Status (x-api-key) � /api/auth/status",
           "request": {
-            "method": "GET",
-            "header": [{ "key": "x-api-key", "value": "{{api_key}}" }],
-            "url": "{{base_url}}/auth/status/{{auth_request_id}}",
-            "description": "Permet de suivre l’état: pending/approved/rejected/expired."
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/auth/status",
+            "description": "Polling du statut (`pending`, `approved`, `rejected`) pour le m�me `id_user`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
+            }
           }
         },
         {
           "name": "[ENTREPRISE] GET Auth Events (x-api-key) — /api/auth/events/:request_id",
           "request": {
             "method": "GET",
-            "header": [{ "key": "x-api-key", "value": "{{api_key}}" }],
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
             "url": "{{base_url}}/auth/events/{{auth_request_id}}",
             "description": "Audit trail (created/approved/rejected)."
           }
@@ -123,7 +210,12 @@
           "name": "[ENTREPRISE] POST Register (téléphone + PIN)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"nom_entreprise\": \"Ma Société CI\",\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
@@ -136,7 +228,12 @@
           "name": "[ENTREPRISE] POST Login (téléphone + PIN)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
@@ -166,7 +263,12 @@
           "name": "[ENTREPRISE] POST Refresh token",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\"\n}"
@@ -179,7 +281,12 @@
           "name": "[ENTREPRISE] POST Session unlock (PIN seulement)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\",\n  \"pin\": \"123456\"\n}"
@@ -193,7 +300,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "url": "{{base_url}}/enterprises/me",
             "description": "Profil entreprise authentifié par JWT : téléphone masqué côté logique liste dans `phone_e164`, `devices`, `linked_users`, `login_history` (5 dernières avec `label` formaté FR)."
@@ -204,8 +314,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -220,8 +336,14 @@
           "request": {
             "method": "DELETE",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -236,8 +358,14 @@
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -251,7 +379,12 @@
           "name": "[PUBLIC] POST Verify enterprise email",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"token\": \"<jwt depuis logs serveur>\"\n}"
@@ -264,7 +397,12 @@
           "name": "[PUBLIC] POST Enterprise PIN recovery request",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
@@ -277,7 +415,12 @@
           "name": "[PUBLIC] POST Enterprise PIN recovery confirm",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"token\": \"<token email ou logs>\",\n  \"pin\": \"654321\"\n}"
@@ -291,7 +434,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "url": "{{base_url}}/enterprises/me/login-history",
             "description": "Sous-ensemble : `login_history` avec libellés du type « Samsung - Lundi 1 janvier à 12:00 »."
@@ -302,8 +448,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{company_access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -323,7 +475,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -369,7 +524,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -414,7 +572,12 @@
           "name": "[UTILISATEUR] POST Session unlock (PIN seulement)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\",\n  \"pin\": \"123456\"\n}"
@@ -428,7 +591,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "url": "{{base_url}}/users/me/login-history",
             "description": "5 dernières connexions avec `label` en français (appareil + date/heure)."
@@ -439,7 +605,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "url": "{{base_url}}/users/{{user_id}}?include_pin_hash=true",
             "description": "Retourne les infos utilisateur OTP Hora : `nom`, `prenom`, `contacts`, `linked_accounts_count`, `linked_accounts`. `include_pin_hash=true` ajoute `pin_hash`."
@@ -466,7 +635,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -508,7 +680,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -539,8 +714,14 @@
           "request": {
             "method": "PATCH",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -571,7 +752,10 @@
           "request": {
             "method": "DELETE",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "url": "{{base_url}}/users/{{user_id}}",
             "description": "Supprime définitivement son compte OTP Hora (route protégée)."
@@ -603,7 +787,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -646,8 +833,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -690,8 +883,14 @@
           "request": {
             "method": "PUT",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Authorization", "value": "Bearer {{access_token}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -705,7 +904,12 @@
           "name": "[PUBLIC] POST Verify email (token du mail)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"token\": \"<jwt depuis les logs serveur en dev>\"\n}"
@@ -718,7 +922,12 @@
           "name": "[PUBLIC] POST Request PIN recovery",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
@@ -731,7 +940,12 @@
           "name": "[PUBLIC] POST Confirm PIN recovery",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"token\": \"<token depuis email ou logs>\",\n  \"pin\": \"654321\"\n}"
@@ -750,8 +964,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -789,7 +1009,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -820,7 +1043,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "url": "{{base_url}}/links",
             "description": "**Backend actuel** : route non exposée → **404** attendu. Conservé pour futur endpoint ou tests de régression."
@@ -845,19 +1071,25 @@
       "name": "auth_requests",
       "item": [
         {
-          "name": "[ENTREPRISE] POST Create auth request",
+          "name": "[ENTREPRISE] POST Init link/auth request (id_user)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"link_id\": \"{{link_id}}\"\n}"
+              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
             },
             "url": "{{base_url}}/auth/request",
-            "description": "Crée une demande d'authentification (`pending`, `expires_at`). Sauvegarde `auth_request_id`."
+            "description": "Cr�e ou r�utilise une demande de liaison bas�e sur `id_user`. Retourne `validation_url` pour consentement utilisateur."
           },
           "event": [
             {
@@ -876,6 +1108,14 @@
                   "    pm.environment.set('auth_request_id', j.data.request_id);",
                   "    pm.collectionVariables.set('auth_request_id', j.data.request_id);",
                   "  }",
+                  "  if (j.data && j.data.validation_url) {",
+                  "    pm.environment.set('validation_url', j.data.validation_url);",
+                  "    pm.collectionVariables.set('validation_url', j.data.validation_url);",
+                  "  }",
+                  "  if (j.data && j.data.status) {",
+                  "    pm.environment.set('auth_status', j.data.status);",
+                  "    pm.collectionVariables.set('auth_status', j.data.status);",
+                  "  }",
                   "} catch (e) {}"
                 ],
                 "type": "text/javascript"
@@ -884,14 +1124,25 @@
           ]
         },
         {
-          "name": "[ENTREPRISE] GET Auth status",
+          "name": "[ENTREPRISE] POST Poll auth status (id_user)",
           "request": {
-            "method": "GET",
+            "method": "POST",
             "header": [
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
-            "url": "{{base_url}}/auth/status/{{auth_request_id}}",
-            "description": "Lit le statut de la demande (`pending`, `approved`, `rejected`, `expired` en lecture)."
+            "url": "{{base_url}}/auth/status",
+            "description": "Interroge le statut actuel de la liaison pour `id_user` (pending/approved/rejected).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
+            }
           },
           "event": [
             {
@@ -903,7 +1154,14 @@
                   "});",
                   "pm.test('JSON has data or error', function () {",
                   "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});"
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.status) {",
+                  "    pm.environment.set('auth_status', j.data.status);",
+                  "    pm.collectionVariables.set('auth_status', j.data.status);",
+                  "  }",
+                  "} catch (e) {}"
                 ],
                 "type": "text/javascript"
               }
@@ -915,7 +1173,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -946,7 +1207,10 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -982,7 +1246,10 @@
           "request": {
             "method": "GET",
             "header": [
-              { "key": "x-api-key", "value": "{{api_key}}" }
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
             ],
             "url": "{{base_url}}/auth/events/{{auth_request_id}}",
             "description": "Liste les événements (`created`, `approved`, `rejected`) pour la demande."

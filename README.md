@@ -145,7 +145,7 @@ Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
 - **Identité OTP Hora** : `POST /api/users` (inscription + émission tokens `role: user` ; pas d’email à l’inscription), `PUT /api/users/me/recovery-email` (email de récupération, authentifié), `POST /api/users/email/verify` (lien de vérification), `POST /api/users/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `POST /api/users/refresh-token`, `POST /api/users/session/unlock`, `POST /api/contacts`, **`POST /api/devices` (Bearer obligatoire)** — sans `x-api-key` entreprise.
 - **Routes utilisateur sensibles** : `GET /api/users/:user_id`, `GET /api/users/me/login-history`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — protégées par `Authorization: Bearer <access_token>`.
 - **Compte entreprise (application)** : `POST /api/enterprises/register`, `POST /api/enterprises/login`, `PUT /api/enterprises/me/recovery-email`, `POST /api/enterprises/email/verify`, `POST /api/enterprises/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `GET|PATCH|DELETE /api/enterprises/me`, `POST /api/enterprises/logout`, appareils et historique sous `/api/enterprises/me/...` — **Bearer** avec JWT **entreprise** (`role: company`).
-- **Partenaire entreprise (intégration serveur)** : sur `POST /api/links`, `POST /api/auth/request`, `GET /api/auth/status/:id`, `GET /api/auth/events/:id`, envoyer soit **`x-api-key`**, soit **`Authorization: Bearer`** avec un **access token entreprise** (même droits métier pour la société authentifiée). La clé API est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’à l’inscription** (`POST /enterprises/register`).
+- **Partenaire entreprise (intégration serveur)** : sur `POST /api/links`, `POST /api/auth/request`, `POST /api/auth/status`, `GET /api/auth/events/:id` (et `GET /api/auth/status/:id` legacy), envoyer soit **`x-api-key`**, soit **`Authorization: Bearer`** avec un **access token entreprise** (même droits métier pour la société authentifiée). La clé API est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’à l’inscription** (`POST /enterprises/register`).
 - Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé entreprise.
 
 ```http
@@ -167,8 +167,9 @@ Référence détaillée : `PROJECT_SPEC.md`.
 - **Entreprise (NGONI) — intégration serveur (B2B)**  
   Appels réalisés par le backend de l’entreprise avec **`x-api-key` ou Bearer token entreprise**.
   - `POST /api/links` : demander une liaison (crée un lien `pending` avec `external_ref`)
-  - `POST /api/auth/request` : créer une demande d’auth (nécessite un lien `active`)
-  - `GET /api/auth/status/:request_id` : lire le statut
+  - `POST /api/auth/request` : initialiser une demande avec `{ id_user, status: "pending" }`
+  - `POST /api/auth/status` : lire le statut avec le même payload (polling)
+  - `GET /api/auth/status/:request_id` : lecture legacy par identifiant de demande
   - `GET /api/auth/events/:request_id` : lire l’historique
 
 - **Entreprise — application (compte téléphone + PIN)**  
@@ -239,8 +240,9 @@ Pour les routes avec code PIN, le corps JSON accepte `pin` en **chaîne** ou en 
 | `POST` | `/api/devices` | Appareil — **Bearer utilisateur obligatoire** |
 | `POST` | `/api/links` | NGONI demande une liaison (`external_ref`) → lien `pending` — **avec** `x-api-key` **ou Bearer entreprise** |
 | `POST` | `/api/links/confirm` | L’utilisateur valide : associe `user_id` au lien → `active` — **sans** clé entreprise |
-| `POST` | `/api/auth/request` | Crée une demande d’auth (lien **actif** requis) — **avec** `x-api-key` ou Bearer entreprise |
-| `GET` | `/api/auth/status/:request_id` | Lit le statut — **avec** `x-api-key` ou Bearer entreprise |
+| `POST` | `/api/auth/request` | Initialise une demande de liaison avec `id_user` + `status=pending` (retourne `validation_url`) — **avec** `x-api-key` ou Bearer entreprise |
+| `POST` | `/api/auth/status` | Polling du statut avec `id_user` + `status=pending` — **avec** `x-api-key` ou Bearer entreprise |
+| `GET` | `/api/auth/status/:request_id` | Lit le statut en mode legacy (par `request_id`) — **avec** `x-api-key` ou Bearer entreprise |
 | `POST` | `/api/auth/approve/:request_id` | Acceptation utilisateur (corps : `user_id`) — **sans** clé entreprise |
 | `POST` | `/api/auth/reject/:request_id` | Refus utilisateur (corps : `user_id`) — **sans** clé entreprise |
 | `GET` | `/api/auth/events/:request_id` | Journal des événements — **avec** `x-api-key` ou Bearer entreprise |
@@ -288,7 +290,7 @@ Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collectio
 
 1. Importer la collection dans Postman.  
 2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises/register`).  
-3. Enchaîner : `POST /users` (tokens) ou `POST /users/login` → `GET /users/:user_id` → contacts → **`POST /devices` (Bearer)** → recovery → optionnel `POST /enterprises/register` (tokens entreprise dans les variables `company_*`) → `POST /links` avec `api_key` **ou** Bearer entreprise → `POST /links/confirm` → `auth/request` → approve/reject → statut / events.
+3. Enchaîner : `POST /users` (tokens) ou `POST /users/login` → `GET /users/:user_id` → contacts → **`POST /devices` (Bearer)** → recovery → optionnel `POST /enterprises/register` (tokens entreprise dans les variables `company_*`) → `POST /auth/request` (`id_user`, `pending`) → ouverture de `validation_url` → polling `POST /auth/status` jusqu’à `approved`/`rejected` → events.
 
 ---
 

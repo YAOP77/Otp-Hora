@@ -4,7 +4,8 @@ async function createAuthRequest(req, res, next) {
   try {
     const authRequest = await authRequestsService.createAuthRequest({
       company_id: req.enterprise?.company_id,
-      link_id: req.body?.link_id,
+      id_user: req.body?.id_user,
+      status: req.body?.status,
     });
 
     return res.status(201).json({
@@ -19,6 +20,7 @@ async function getAuthRequestStatus(req, res, next) {
   try {
     const authRequest = await authRequestsService.getAuthRequestStatus({
       company_id: req.enterprise?.company_id,
+      id_user: req.body?.id_user,
       request_id: req.params?.request_id,
     });
 

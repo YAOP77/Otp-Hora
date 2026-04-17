@@ -1,90 +1,65 @@
-# Nouveau flux d’authentification (simple)
+# Workflow Hora simplifie (id_user + status)
 
-Ce flux **remplace l’OTP** comme étape de validation.  
-Il **ne remplace pas** les routes Ngoni `register/login` : il décide juste si l’utilisateur a le droit d’y accéder.
+Le workflow de liaison/authentification est base sur 3 champs:
 
----
-
-## Acteurs
-
-- **Entreprise / App (Ngoni, Facebook-like, etc.)** : déclenche la demande (serveur-à-serveur).
-- **Utilisateur** : se connecte sur **Hora** et donne son consentement.
-- **Hora** : intermédiaire (liaison + demande + décision).
+- `x-api-key` (auth entreprise)
+- `id_user` (identifiant utilisateur fourni par Hora, ex: `x-th-a1`)
+- `status` (`pending`, `approved`, `rejected`)
 
 ---
 
-## Pré-requis
+## Contrat entreprise
 
-- **Côté entreprise (recommandé)** : on utilise **uniquement `x-api-key`** (clé API stable) pour les appels serveur-à-serveur.
-  - ✅ **Pas de “connexion entreprise”** (pas de session, pas de Bearer token).
-  - Le `x-api-key` est obtenu **une seule fois** lors de `POST /api/enterprises/register` (champ `api_key`).
-  - Il est stocké **côté serveur** (secret manager / env serveur), jamais côté mobile.
-- **Côté utilisateur** : l’utilisateur se connecte sur Hora (téléphone + PIN) dans la page de consentement.
+### 1) Initialiser une demande
 
----
+`POST /api/auth/request` avec `x-api-key`.
 
-## Flux (résumé en 6 étapes)
+Body:
 
-### 1) (Entreprise) Créer une liaison
-
-`POST https://otp-hora.onrender.com/api/links` (auth entreprise via `x-api-key`)
-
-Body :
 ```json
-{ "external_ref": "ext-user-001" }
+{
+  "id_user": "x-th-a1",
+  "status": "pending"
+}
 ```
 
-Réponse : `link_id` en `pending`.
+Reponse:
 
-### 2) (Entreprise) Créer une demande d’auth
+- `request_id`
+- `status: "pending"`
+- `validation_url` (lien Hora a ouvrir pour que l'utilisateur valide)
 
-`POST https://otp-hora.onrender.com/api/auth/request` (auth entreprise via `x-api-key`)
+### 2) Polling de statut
 
-Body :
+`POST /api/auth/status` avec `x-api-key`, en renvoyant le meme payload:
+
 ```json
-{ "link_id": "<link_id>" }
+{
+  "id_user": "x-th-a1",
+  "status": "pending"
+}
 ```
 
-Réponse : `request_id` en `pending` (avec `expires_at`).
+Hora renvoie:
 
-### 3) (Entreprise) Rediriger l’utilisateur vers Hora (consentement)
-
-Ouvrir / rediriger vers :
-
-`GET https://otp-hora.onrender.com/flow/consent?link_id=...&request_id=...&callback_url=...`
-
-### 4) (Utilisateur sur Hora) Se connecter + confirmer + décider
-
-Sur la page Hora :
-- login (téléphone + PIN)
-- confirmation de la liaison (`link_id`)
-- **approve** ou **reject** de la demande (`request_id`)
-
-### 5) (Hora) Rediriger vers l’app (callback)
-
-Si `callback_url` est fourni et autorisé, Hora redirige vers :
-
-`callback_url?hora_status=approved|rejected&hora_request_id=...&hora_link_id=...`
-
-### 6) (Ngoni) Finaliser
-
-- Si `hora_status=approved` :
-  - si l’utilisateur n’a pas de compte → autoriser `register`
-  - sinon → autoriser `login` / créer session
-- Si `hora_status=rejected` (ou expiré) :
-  - refuser proprement (message + possibilité de recommencer)
+- `pending` -> attendre
+- `approved` -> autoriser register/login cote reseau social
+- `rejected` -> refuser l'authentification
 
 ---
 
-## Suivi côté entreprise (optionnel)
+## Contrat utilisateur
 
-- Statut : `GET https://otp-hora.onrender.com/api/auth/status/:request_id`
-- Audit trail : `GET https://otp-hora.onrender.com/api/auth/events/:request_id`
+1. L'utilisateur partage son `id_user` a l'application tierce.
+2. Hora expose un `validation_url`.
+3. Sur cette page Hora, l'utilisateur confirme ou refuse la liaison.
+4. Hora met a jour le statut de la demande (`approved` ou `rejected`).
+5. L'entreprise recupere ce statut via `POST /api/auth/status`.
 
 ---
 
-## Points importants (à ne pas rater)
+## Notes
 
-- Il n’existe **pas** de `GET /api/links` ni `GET /api/links/:id` côté Hora.
-- Le mobile **ne doit pas** appeler directement `links/confirm` ou `auth/approve|reject` dans ce nouveau modèle : c’est la page Hora `/flow/consent` qui gère tout.
+- `GET /api/auth/status/:request_id` reste disponible pour compatibilite legacy.
+- Les routes `/api/auth/approve/:request_id` et `/api/auth/reject/:request_id` restent utilisees cote Hora/utilisateur.
 

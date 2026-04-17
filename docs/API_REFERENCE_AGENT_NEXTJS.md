@@ -3,7 +3,7 @@
 Documentation **alignée sur le code** (`src/modules/*/routes.js`, contrôleurs et services).  
 **Base path:** toutes les routes listées ci-dessous sont préfixées par **`/api`** (ex. `GET /api/health` → URL complète `https://<host>/api/health`).
 
-**Nombre d’endpoints documentés:** **39** (aucune omission volontaire — inventaire vérifié contre `src/modules/index.js`).
+**Nombre d’endpoints documentés:** **40** (aucune omission volontaire — inventaire vérifié contre `src/modules/index.js`).
 
 > **Note:** un fichier `src/modules/recovery_methods/recovery.routes.js` définit `POST /recovery`, mais ce routeur **n’est pas enregistré** dans `registerRoutes` — **ce n’est pas** une des 39 APIs exposées.
 
@@ -88,18 +88,19 @@ Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`**
 | 25 | GET | `/api/enterprises/me/linked-users` | Utilisateurs liés |
 | 26 | GET | `/api/enterprises/me/login-history` | Historique connexion entreprise |
 | 27 | POST | `/api/auth/request` | Créer demande d’auth |
-| 28 | GET | `/api/auth/status/:request_id` | Statut demande d’auth |
-| 29 | POST | `/api/auth/approve/:request_id` | Approuver demande |
-| 30 | POST | `/api/auth/reject/:request_id` | Rejeter demande |
-| 31 | GET | `/api/auth/events/:request_id` | Événements liés à la demande |
-| 32 | POST | `/api/users/pin-recovery/request` | Demande reset PIN utilisateur |
-| 33 | POST | `/api/users/pin-recovery/confirm` | Confirmer reset PIN utilisateur |
-| 34 | POST | `/api/enterprises/pin-recovery/request` | Demande reset PIN entreprise |
-| 35 | POST | `/api/enterprises/pin-recovery/confirm` | Confirmer reset PIN entreprise |
-| 36 | POST | `/api/links` | Demander lien d’identité |
-| 37 | POST | `/api/links/confirm` | Confirmer lien d’identité |
-| 38 | POST | `/api/contacts` | Créer contact utilisateur |
-| 39 | POST | `/api/devices` | Enregistrer appareil utilisateur |
+| 28 | POST | `/api/auth/status` | Polling statut par `id_user` |
+| 29 | GET | `/api/auth/status/:request_id` | Statut demande d’auth (legacy) |
+| 30 | POST | `/api/auth/approve/:request_id` | Approuver demande |
+| 31 | POST | `/api/auth/reject/:request_id` | Rejeter demande |
+| 32 | GET | `/api/auth/events/:request_id` | Événements liés à la demande |
+| 33 | POST | `/api/users/pin-recovery/request` | Demande reset PIN utilisateur |
+| 34 | POST | `/api/users/pin-recovery/confirm` | Confirmer reset PIN utilisateur |
+| 35 | POST | `/api/enterprises/pin-recovery/request` | Demande reset PIN entreprise |
+| 36 | POST | `/api/enterprises/pin-recovery/confirm` | Confirmer reset PIN entreprise |
+| 37 | POST | `/api/links` | Demander lien d’identité |
+| 38 | POST | `/api/links/confirm` | Confirmer lien d’identité |
+| 39 | POST | `/api/contacts` | Créer contact utilisateur |
+| 40 | POST | `/api/devices` | Enregistrer appareil utilisateur |
 
 ---
 
@@ -392,24 +393,35 @@ Content-Type: application/json
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | `requireEnterpriseAuth` — **Bearer entreprise** **ou** `x-api-key` |
-| **Body** | `link_id` (UUID **requis**) |
-| **Succès 201** | `{ "data": { request_id, status, expires_at } }` |
-| **Erreurs** | `401` `UNAUTHORIZED` ; `429` `RATE_LIMITED` ; `400` `INVALID_INPUT` \| `INVALID_UUID` ; `404` `LINK_NOT_FOUND` ; `403` `FORBIDDEN` ; `409` `LINK_NOT_ACTIVE` |
+| **Body** | `id_user` (string **requis**) ; `status` (optionnel mais si fourni: `pending`) |
+| **Succès 201** | `{ "data": { request_id, id_user, status: "pending", expires_at, validation_url } }` |
+| **Erreurs** | `401` `UNAUTHORIZED` ; `429` `RATE_LIMITED` ; `400` `INVALID_INPUT` \| `INVALID_STATUS` |
 
 ---
 
-### 3.28 — `GET /api/auth/status/:request_id`
+### 3.28 — `POST /api/auth/status`
+
+| Champ | Valeur |
+|--------|--------|
+| **Auth** | `requireEnterpriseAuth` |
+| **Body** | `id_user` (string **requis**) ; `status` (optionnel, `pending`) |
+| **Succès 200** | `{ "data": { request_id, id_user, status } }` avec `status` dans `pending` \| `approved` \| `rejected` |
+| **Erreurs** | `401` `UNAUTHORIZED` ; `400` `INVALID_INPUT` |
+
+---
+
+### 3.29 — `GET /api/auth/status/:request_id` (legacy)
 
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | `requireEnterpriseAuth` |
 | **Path** | `request_id` (UUID) |
-| **Succès 200** | `{ "data": { request_id, status, expires_at } }` — si la demande était `pending` mais expirée, `status` renvoyé peut être `expired`. |
+| **Succès 200** | `{ "data": { request_id, status, expires_at } }` |
 | **Erreurs** | `401` `UNAUTHORIZED` ; `400` `INVALID_INPUT` \| `INVALID_UUID` ; `404` `REQUEST_NOT_FOUND` ; `404` `LINK_NOT_FOUND` ; `403` `FORBIDDEN` |
 
 ---
 
-### 3.29 — `POST /api/auth/approve/:request_id`
+### 3.30 — `POST /api/auth/approve/:request_id`
 
 | Champ | Valeur |
 |--------|--------|
@@ -421,7 +433,7 @@ Content-Type: application/json
 
 ---
 
-### 3.30 — `POST /api/auth/reject/:request_id`
+### 3.31 — `POST /api/auth/reject/:request_id`
 
 | Champ | Valeur |
 |--------|--------|
@@ -431,7 +443,7 @@ Content-Type: application/json
 
 ---
 
-### 3.31 — `GET /api/auth/events/:request_id`
+### 3.32 — `GET /api/auth/events/:request_id`
 
 | Champ | Valeur |
 |--------|--------|
@@ -606,18 +618,19 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 - [ ] **25** — `GET /api/enterprises/me/linked-users`
 - [ ] **26** — `GET /api/enterprises/me/login-history`
 - [ ] **27** — `POST /api/auth/request`
-- [ ] **28** — `GET /api/auth/status/:request_id`
-- [ ] **29** — `POST /api/auth/approve/:request_id`
-- [ ] **30** — `POST /api/auth/reject/:request_id`
-- [ ] **31** — `GET /api/auth/events/:request_id`
-- [ ] **32** — `POST /api/users/pin-recovery/request`
-- [ ] **33** — `POST /api/users/pin-recovery/confirm`
-- [ ] **34** — `POST /api/enterprises/pin-recovery/request`
-- [ ] **35** — `POST /api/enterprises/pin-recovery/confirm`
-- [ ] **36** — `POST /api/links`
-- [ ] **37** — `POST /api/links/confirm`
-- [ ] **38** — `POST /api/contacts`
-- [ ] **39** — `POST /api/devices`
+- [ ] **28** — `POST /api/auth/status`
+- [ ] **29** — `GET /api/auth/status/:request_id`
+- [ ] **30** — `POST /api/auth/approve/:request_id`
+- [ ] **31** — `POST /api/auth/reject/:request_id`
+- [ ] **32** — `GET /api/auth/events/:request_id`
+- [ ] **33** — `POST /api/users/pin-recovery/request`
+- [ ] **34** — `POST /api/users/pin-recovery/confirm`
+- [ ] **35** — `POST /api/enterprises/pin-recovery/request`
+- [ ] **36** — `POST /api/enterprises/pin-recovery/confirm`
+- [ ] **37** — `POST /api/links`
+- [ ] **38** — `POST /api/links/confirm`
+- [ ] **39** — `POST /api/contacts`
+- [ ] **40** — `POST /api/devices`
 
 ### 5.2 Intégration Next.js
 
