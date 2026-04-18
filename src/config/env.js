@@ -10,8 +10,6 @@ const env = {
     Number.parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60 * 1000,
   rateLimitCreatePerWindow:
     Number.parseInt(process.env.RATE_LIMIT_CREATE_PER_WINDOW, 10) || 30,
-  rateLimitResolvePerWindow:
-    Number.parseInt(process.env.RATE_LIMIT_RESOLVE_PER_WINDOW, 10) || 60,
   apiKeyCacheTtlMs:
     Number.parseInt(process.env.API_KEY_CACHE_TTL_MS, 10) || 5 * 60 * 1000,
   apiKeyCacheMaxEntries:
@@ -31,14 +29,11 @@ const env = {
   pinResetTokenTtlMinutes:
     Number.parseInt(process.env.PIN_RESET_TOKEN_TTL_MINUTES, 10) || 15,
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://app.otp-hora.example',
+  publicHoraUrl: process.env.PUBLIC_HORA_URL || process.env.PUBLIC_APP_URL || 'https://otp-hora.onrender.com',
   flowStateSecret:
     process.env.FLOW_STATE_SECRET || 'dev_flow_state_secret_change_me',
   flowStateTtl:
     Number.parseInt(process.env.FLOW_STATE_TTL_SECONDS, 10) || 15 * 60,
-  flowAllowedCallbackOrigins:
-    process.env.FLOW_ALLOWED_CALLBACK_ORIGINS
-      ? process.env.FLOW_ALLOWED_CALLBACK_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
-      : [],
 };
 
 module.exports = { env };

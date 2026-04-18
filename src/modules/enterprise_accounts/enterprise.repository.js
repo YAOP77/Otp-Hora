@@ -183,17 +183,16 @@ async function findLinkedUsersForCompany(companyId) {
   return prisma.identity_links.findMany({
     where: {
       company_id: companyId,
-      user_id: { not: null },
-      status: 'active',
+      status: 'approved',
     },
     select: {
       link_id: true,
-      external_ref: true,
       status: true,
       user_id: true,
       users: {
         select: {
           user_id: true,
+          user_key: true,
           nom: true,
           prenom: true,
           status: true,

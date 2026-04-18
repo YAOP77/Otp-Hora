@@ -1,21 +1,20 @@
 # OTP Hora — Backend API
 
-API d’authentification sécurisée pour le produit **OTP Hora** : remplacement des codes OTP par une validation via demandes d’authentification et notifications (push prévu côté produit). Ce dépôt contient le **backend Node.js** (Express + PostgreSQL + Prisma).
+API d'authentification **Otp Hora** : les applications partenaires (réseaux sociaux, apps tierces) authentifient leurs utilisateurs en s'intégrant avec Hora. L'utilisateur approuve ou refuse la liaison depuis l'application Hora (web aujourd'hui, mobile à venir).
 
-La spécification fonctionnelle et métier de référence est décrite dans [`PROJECT_SPEC.md`](./PROJECT_SPEC.md).
+Ce dépôt contient le **backend Node.js** (Express + PostgreSQL + Prisma). Spécification fonctionnelle : [`PROJECT_SPEC.md`](./PROJECT_SPEC.md).
 
 ---
 
 ## Sommaire
 
+- [Workflow d'authentification](#workflow-dauthentification)
 - [Stack technique](#stack-technique)
-- [Prérequis](#prérequis)
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Base de données](#base-de-données)
 - [Démarrage](#démarrage)
-- [Authentification](#authentification)
-- [Endpoints principaux](#endpoints-principaux)
+- [Endpoints](#endpoints)
 - [Structure du projet](#structure-du-projet)
 - [Tests API (Postman)](#tests-api-postman)
 - [Déploiement](#déploiement)
@@ -23,23 +22,39 @@ La spécification fonctionnelle et métier de référence est décrite dans [`PR
 
 ---
 
-## Stack technique
+## Workflow d'authentification
 
-| Composant   | Détail                          |
-|------------|----------------------------------|
-| Runtime    | Node.js ≥ 18                     |
-| Framework  | Express 4                        |
-| Base       | PostgreSQL                       |
-| ORM        | Prisma 7                         |
-| Auth API   | JWT utilisateur (`role: user`) et JWT entreprise (`role: company`) ; clé `x-api-key` (B2B) toujours supportée sur les routes partenaires ; normalisation téléphone via `libphonenumber-js` |
+### Acteurs
+
+- **Utilisateur Hora** : possède un compte Hora. À l'inscription, Hora lui attribue une **`user_key`** humainement lisible (ex : `x-th-a1b2c3`). Il communique cette clé aux applications partenaires qui veulent l'authentifier.
+- **Entreprise (application partenaire)** : possède un compte Hora entreprise. À l'inscription, Hora lui attribue une **`x-api-key`** qu'elle garde secrète dans son `.env`.
+
+### Scénario
+
+1. L'utilisateur ouvre l'application partenaire (Ngoni, etc.) et saisit sa `user_key`.
+2. Le partenaire appelle **`POST /api/links`** avec son `x-api-key` et la `user_key` de l'utilisateur. Hora crée (ou retrouve) une liaison en statut `pending` et retourne une **`consent_url`**.
+3. Le partenaire redirige l'utilisateur vers la `consent_url`. L'utilisateur arrive sur l'app Hora (web ou mobile), se connecte avec son téléphone + PIN, et voit : *« {Partenaire} demande à vous authentifier. Autoriser ? »*
+4. L'utilisateur **approuve** → le statut passe à `approved`. Il **refuse** → statut `rejected`.
+5. Le partenaire **poll** la liaison via **`GET /api/links/:link_id`** (ou rappelle `POST /api/links` — c'est idempotent) :
+   - `approved` → laisse l'utilisateur se connecter / finaliser son inscription.
+   - `rejected` → refuse l'authentification.
+   - `pending` → continue de poll.
+
+### Cas particulier : reprise après refus
+
+Si l'utilisateur refuse par erreur, il peut supprimer sa liaison via **`DELETE /api/me/links/:link_id`** (liaison en `rejected` uniquement). Le partenaire pourra ensuite recréer une liaison via `POST /api/links`.
 
 ---
 
-## Prérequis
+## Stack technique
 
-- [Node.js](https://nodejs.org/) 18 ou supérieur  
-- [PostgreSQL](https://www.postgresql.org/) accessible (local ou hébergé)  
-- Compte avec droits de création de base / schéma pour les migrations Prisma  
+| Composant | Détail |
+|-----------|--------|
+| Runtime | Node.js ≥ 18 |
+| Framework | Express 4 |
+| Base | PostgreSQL |
+| ORM | Prisma 7 |
+| Auth | `x-api-key` (B2B) pour les entreprises, JWT `role: user` pour les utilisateurs, JWT `role: company` pour l'app entreprise. Téléphones normalisés en E.164 via `libphonenumber-js`. |
 
 ---
 
@@ -49,205 +64,140 @@ La spécification fonctionnelle et métier de référence est décrite dans [`PR
 git clone <url-du-depot>
 cd otp-hora-backend-api
 npm install
-```
-
-Copier la configuration d’exemple des variables d’environnement :
-
-```bash
 cp .env.example .env
+# éditer .env (voir Configuration)
 ```
-
-Éditer `.env` (voir [Configuration](#configuration)).
 
 ---
 
 ## Configuration
 
-Variables principales (voir aussi `.env.example`) :
+Variables principales (voir `.env.example` pour la liste complète) :
 
 | Variable | Description |
 |----------|-------------|
 | `NODE_ENV` | `development` ou `production` |
-| `PORT` | Port d’écoute HTTP (défaut : `3000`) |
-| `DATABASE_URL` | Chaîne de connexion PostgreSQL pour Prisma |
-| `CORS_ORIGIN` | Optionnel : origines CORS séparées par des virgules |
-| `RATE_LIMIT_*` | Fenêtre et quotas pour le rate limiting sur les routes `auth_*` |
-| `API_KEY_CACHE_*` | TTL et taille du cache mémoire des authentifications API key réussies |
-| `USER_ACCESS_TOKEN_SECRET` | Secret de signature JWT access token utilisateur |
-| `USER_REFRESH_TOKEN_SECRET` | Secret de signature JWT refresh token utilisateur |
-| `USER_ACCESS_TOKEN_TTL_SECONDS` | Durée de vie access token utilisateur (sec) |
-| `USER_REFRESH_TOKEN_TTL_SECONDS` | Durée de vie refresh token utilisateur (sec) |
-| `EMAIL_VERIFICATION_SECRET` | Secret JWT pour les liens de vérification d’email |
-| `EMAIL_VERIFICATION_TTL_SECONDS` | Durée de validité du lien de vérification d’email |
-| `PIN_RESET_TOKEN_TTL_MINUTES` | Durée de validité du token de réinitialisation PIN (défaut 15) |
-| `PUBLIC_APP_URL` | Base URL utilisée dans les liens des emails (mock / production) |
+| `PORT` | Port HTTP (défaut : `3000`) |
+| `DATABASE_URL` | Chaîne de connexion PostgreSQL |
+| `PUBLIC_HORA_URL` | URL publique du backend Hora (base des `consent_url`). Ex : `https://otp-hora.onrender.com` |
+| `PUBLIC_APP_URL` | URL publique côté utilisateur (liens dans les emails). Fallback pour `PUBLIC_HORA_URL` |
+| `FLOW_STATE_SECRET` | Secret JWT pour les formulaires `/flow/consent` (anti-CSRF) |
+| `FLOW_STATE_TTL_SECONDS` | Durée de vie du state JWT (défaut : 900 sec) |
+| `USER_ACCESS_TOKEN_SECRET` / `USER_REFRESH_TOKEN_SECRET` | Secrets JWT utilisateur |
+| `USER_ACCESS_TOKEN_TTL_SECONDS` / `USER_REFRESH_TOKEN_TTL_SECONDS` | Durées de vie JWT utilisateur |
+| `EMAIL_VERIFICATION_SECRET` / `EMAIL_VERIFICATION_TTL_SECONDS` | Vérification email |
+| `PIN_RESET_TOKEN_TTL_MINUTES` | Durée de validité du token de reset PIN |
+| `API_KEY_CACHE_TTL_MS` / `API_KEY_CACHE_MAX_ENTRIES` | Cache mémoire des `x-api-key` authentifiées |
+| `RATE_LIMIT_*` | Fenêtre et quotas de rate limiting |
+| `CORS_ORIGIN` | Optionnel : origines CORS séparées par virgules |
 
-> **Ne jamais commiter le fichier `.env`** : il est listé dans `.gitignore`.
+> **Ne jamais commiter le fichier `.env`** — il est listé dans `.gitignore`.
 
 ---
 
 ## Base de données
 
-Le schéma Prisma est dans `prisma/schema.prisma`. Les modèles couvrent notamment : `users` (rôle `user`), `user_contacts`, `user_devices`, `user_login_history`, `enterprise_accounts`, `enterprise_devices`, `enterprise_login_history`, `identity_links`, `auth_requests`, `auth_events`, `recovery_methods`.
-
-Les numéros sont **normalisés en E.164** à l’enregistrement et à la connexion (`libphonenumber-js`). Les contacts créés avant cette règle peuvent nécessiter une **migration de données** ou une nouvelle saisie pour que la connexion par téléphone fonctionne.
-
-Générer le client Prisma et appliquer les migrations :
+Schéma Prisma dans `prisma/schema.prisma`. Modèles principaux : `users` (avec `user_key`), `user_contacts`, `user_devices`, `user_login_history`, `enterprise_accounts`, `enterprise_devices`, `enterprise_login_history`, `identity_links` (status : `pending` / `approved` / `rejected`), `pin_reset_tokens`.
 
 ```bash
 npx prisma generate
 npx prisma migrate deploy
 ```
 
-Si la base existe déjà sans historique Prisma (`P3005`), marquer la baseline comme déjà appliquée puis déployer :
+Si la base existe sans historique Prisma (`P3005`) :
 
 ```bash
 npx prisma migrate resolve --applied 20260101000000_baseline_existing_database
 npx prisma migrate deploy
 ```
 
-Pour une base neuve en développement, `npx prisma db push` reste possible.
-
-En développement (création d’une nouvelle migration) :
-
-```bash
-npx prisma migrate dev
-```
-
-**Entreprise** : **`POST /api/enterprises/register`** (nom + téléphone international + PIN) génère une `api_key` B2B renvoyée **une seule fois** en clair et des **JWT entreprise**. Les routes partenaires (`/links`, `/auth/*` côté serveur) acceptent **`x-api-key` ou `Authorization: Bearer`** avec un token **entreprise**. Compte fermé : **`DELETE /api/enterprises/me`** (PIN) → suppression logique, liens révoqués.
-
 ---
 
 ## Démarrage
 
 ```bash
-# production
-npm start
-
-# développement (rechargement à chaud)
-npm run dev
+npm start        # production
+npm run dev      # développement (reload)
 ```
 
-Vérification rapide :
-
-```http
-GET /api/health
-```
-
-Réponse : texte indiquant que l’API est en ligne.
+Healthcheck : `GET /api/health`.
 
 ---
 
-## Authentification
+## Endpoints
 
-Aligné avec [`PROJECT_SPEC.md`](./PROJECT_SPEC.md) :
+Toutes les routes sont préfixées par `/api`. Le format de réponse est `{ "data": ... }` pour les succès et `{ "error": { "message", "code", "status" } }` pour les erreurs.
 
-- **Identité OTP Hora** : `POST /api/users` (inscription + émission tokens `role: user` ; pas d’email à l’inscription), `PUT /api/users/me/recovery-email` (email de récupération, authentifié), `POST /api/users/email/verify` (lien de vérification), `POST /api/users/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `POST /api/users/refresh-token`, `POST /api/users/session/unlock`, `POST /api/contacts`, **`POST /api/devices` (Bearer obligatoire)** — sans `x-api-key` entreprise.
-- **Routes utilisateur sensibles** : `GET /api/users/:user_id`, `GET /api/users/me/login-history`, `POST /api/links/confirm`, `POST /api/auth/approve/:id`, `POST /api/auth/reject/:id` — protégées par `Authorization: Bearer <access_token>`.
-- **Compte entreprise (application)** : `POST /api/enterprises/register`, `POST /api/enterprises/login`, `PUT /api/enterprises/me/recovery-email`, `POST /api/enterprises/email/verify`, `POST /api/enterprises/pin-recovery/request` / `confirm` (PIN oublié, **email vérifié obligatoire**), `GET|PATCH|DELETE /api/enterprises/me`, `POST /api/enterprises/logout`, appareils et historique sous `/api/enterprises/me/...` — **Bearer** avec JWT **entreprise** (`role: company`).
-- **Partenaire entreprise (intégration serveur)** : sur `POST /api/links`, `POST /api/auth/request`, `POST /api/auth/status`, `GET /api/auth/events/:id` (et `GET /api/auth/status/:id` legacy), envoyer soit **`x-api-key`**, soit **`Authorization: Bearer`** avec un **access token entreprise** (même droits métier pour la société authentifiée). La clé API est **hashée (bcrypt)** en base ; la valeur en clair n’est renvoyée **qu’à l’inscription** (`POST /enterprises/register`).
-- Un **cache mémoire** (configurable) évite de refaire des comparaisons bcrypt à chaque requête pour la même clé entreprise.
+### Santé
 
-```http
-x-api-key: <clé API brute>
-```
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET | `/api/health` | Healthcheck |
 
-```http
-Authorization: Bearer <access_token>   # utilisateur (role user) ou entreprise (role company) selon la route
-```
+### Partenaires (x-api-key ou Bearer entreprise)
 
----
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| POST | `/api/links` | Crée ou récupère la liaison pour une `user_key`. Body : `{ user_key }`. Retourne `{ link_id, status, consent_url }` |
+| GET | `/api/links/:link_id` | Statut de la liaison (polling) |
 
-## Endpoints principaux
+### Utilisateur (Bearer user)
 
-Référence détaillée : `PROJECT_SPEC.md`.
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET | `/api/me/links` | Liste des liaisons de l'utilisateur connecté (query optionnel : `?status=pending`) |
+| POST | `/api/me/links/:link_id/approve` | Approuve une liaison en attente |
+| POST | `/api/me/links/:link_id/reject` | Refuse une liaison en attente |
+| DELETE | `/api/me/links/:link_id` | Supprime une liaison rejetée (permet au partenaire de réessayer) |
 
-### Séparation des responsabilités (qui appelle quoi)
+### Compte utilisateur Hora
 
-- **Entreprise (NGONI) — intégration serveur (B2B)**  
-  Appels réalisés par le backend de l’entreprise avec **`x-api-key` ou Bearer token entreprise**.
-  - `POST /api/links` : demander une liaison (crée un lien `pending` avec `external_ref`)
-  - `POST /api/auth/request` : initialiser une demande avec `{ id_user, status: "pending" }`
-  - `POST /api/auth/status` : lire le statut avec le même payload (polling)
-  - `GET /api/auth/status/:request_id` : lecture legacy par identifiant de demande
-  - `GET /api/auth/events/:request_id` : lire l’historique
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| POST | `/api/users` | Inscription (`nom`, `prenom`, `pin`) → retourne `user_key` + tokens |
+| POST | `/api/users/login` | Connexion (`phone_number` + `pin`) |
+| POST | `/api/users/session/unlock` | Déverrouillage (`refresh_token` + `pin`) |
+| POST | `/api/users/refresh-token` | Rotation des tokens |
+| POST | `/api/users/logout` | Déconnexion (Bearer) |
+| GET | `/api/users/:user_id` | Profil (Bearer, self only) |
+| PATCH | `/api/users/:user_id` | Modification `nom` / `pin` (Bearer, self only) |
+| DELETE | `/api/users/:user_id` | Suppression (Bearer, self only) |
+| GET | `/api/users/me/login-history` | 5 dernières connexions (Bearer) |
+| PUT | `/api/users/me/recovery-email` | Email de récupération (Bearer) |
+| POST | `/api/users/email/verify` | Vérification email (`token`) |
+| POST | `/api/users/pin-recovery/request` | Reset PIN (`contact` + email vérifié) |
+| POST | `/api/users/pin-recovery/confirm` | Nouveau PIN (`token` + `pin`) |
+| POST | `/api/contacts` | Ajout contact téléphone |
+| POST | `/api/devices` | Enregistrement appareil (Bearer) |
 
-- **Entreprise — application (compte téléphone + PIN)**  
-  - `POST /api/enterprises/register` : inscription (nom, téléphone E.164, PIN) → JWT + `api_key` B2B
-  - `POST /api/enterprises/login` : connexion téléphone + PIN
-  - `POST /api/enterprises/session/unlock` : PIN + refresh (réouverture sans login complet)
-  - `POST /api/enterprises/refresh-token` : rotation tokens entreprise
-  - `GET /api/enterprises/me` : profil, appareils, utilisateurs liés, aperçu historique connexions
-  - `PATCH /api/enterprises/me` : mise à jour compte
-  - `POST /api/enterprises/logout` : invalider session entreprise
-  - `GET/POST /api/enterprises/me/devices`, `GET /api/enterprises/me/login-history`, `GET /api/enterprises/me/linked-users`
+### Compte entreprise Hora
 
-- **Utilisateur (OTP Hora) — côté application OTP Hora**  
-  Appels réalisés par l’utilisateur (sans `x-api-key` entreprise).
-  - `POST /api/users` : inscription (nom, prénom, PIN) + émission `access_token` / `refresh_token`
-  - `POST /api/users/login` : connexion flexible (phone + PIN), numéro normalisé en E.164
-  - `POST /api/users/session/unlock` : PIN + `refresh_token` (réouverture session)
-  - `POST /api/users/refresh-token` : renouveler les tokens utilisateur via `refresh_token`
-  - `POST /api/users/logout` : déconnexion (protégée)
-  - `GET /api/users/:user_id` : lire le profil OTP Hora (contacts, appareils, comptes liés), protégé par bearer token
-  - `GET /api/users/me/login-history` : dernières connexions (max 5)
-  - `PATCH /api/users/:user_id` : modifier `nom` et/ou `pin` (protégée, self only)
-  - `DELETE /api/users/:user_id` : supprimer son compte (protégée, self only)
-  - `POST /api/contacts` : ajouter téléphone (normalisé E.164)
-  - `POST /api/devices` : enregistrer appareil (**Bearer utilisateur obligatoire**)
-  - `PUT /api/users/me/recovery-email`, `POST /api/users/email/verify`, `POST /api/users/pin-recovery/*` : récupération de compte (voir `PROJECT_SPEC.md`)
-  - `POST /api/links/confirm` : confirmer une liaison (associe `user_id` au `link_id`)
-  - `POST /api/auth/approve/:request_id` : accepter une demande (corps : `user_id`)
-  - `POST /api/auth/reject/:request_id` : refuser une demande (corps : `user_id`)
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| POST | `/api/enterprises/register` | Inscription (nom, téléphone E.164, PIN) → retourne `api_key` **une seule fois** |
+| POST | `/api/enterprises/login` | Connexion (téléphone + PIN) |
+| POST | `/api/enterprises/session/unlock` | Déverrouillage |
+| POST | `/api/enterprises/refresh-token` | Rotation des tokens |
+| POST | `/api/enterprises/logout` | Déconnexion (Bearer company) |
+| GET | `/api/enterprises/me` | Profil entreprise (Bearer company) |
+| PATCH | `/api/enterprises/me` | Modification (Bearer company) |
+| DELETE | `/api/enterprises/me` | Suppression logique (Bearer company + PIN) |
+| PUT | `/api/enterprises/me/recovery-email` | Email de récupération (Bearer company) |
+| POST | `/api/enterprises/email/verify` | Vérification email (`token`) |
+| POST | `/api/enterprises/pin-recovery/request` | Reset PIN |
+| POST | `/api/enterprises/pin-recovery/confirm` | Nouveau PIN |
+| GET | `/api/enterprises/me/devices` | Appareils (Bearer company) |
+| POST | `/api/enterprises/me/devices` | Enregistrer appareil (Bearer company) |
+| GET | `/api/enterprises/me/linked-users` | Utilisateurs liés approved (Bearer company) |
+| GET | `/api/enterprises/me/login-history` | Historique connexions (Bearer company) |
 
-- **OTP Hora (service)**  
-  - `GET /api/health` : disponibilité du service
+### Flow web (pages HTML, pas des endpoints JSON)
 
-### Tableau récapitulatif
-
-Pour les routes avec code PIN, le corps JSON accepte `pin` en **chaîne** ou en **nombre** (ex. `"1234"` ou `1234`, utile pour les clients mobiles). Alias reconnus : `code_pin`, `PIN` (inscription / connexion / unlock / PATCH profil). Pour **`POST .../pin-recovery/request`** (utilisateur et entreprise), le téléphone peut être envoyé sous `contact`, `phone` ou `phone_number` (normalisé côté serveur en `{ contact }`). Pour **`.../pin-recovery/confirm`**, les mêmes alias `pin` / `code_pin` / `PIN` s’appliquent.
-
-| Méthode | Chemin | Rôle |
-|---------|--------|------|
-| `GET` | `/api/health` | Vérifie que l’API est disponible |
-| `POST` | `/api/enterprises/register` | Inscription entreprise : nom, téléphone (E.164), PIN → JWT + `api_key` |
-| `POST` | `/api/enterprises/login` | Connexion entreprise : téléphone + PIN → JWT |
-| `POST` | `/api/enterprises/refresh-token` | Renouvelle les tokens JWT entreprise |
-| `POST` | `/api/enterprises/session/unlock` | PIN + refresh token → nouveaux tokens (session verrouillée) |
-| `GET` | `/api/enterprises/me` | Profil entreprise (`email`, `email_verified`), appareils, liens, historique |
-| `PUT` | `/api/enterprises/me/recovery-email` | Email de récupération entreprise (Bearer) |
-| `POST` | `/api/enterprises/email/verify` | Vérifie l’email entreprise (`token` JWT) |
-| `POST` | `/api/enterprises/pin-recovery/request` | Reset PIN par téléphone si email vérifié |
-| `POST` | `/api/enterprises/pin-recovery/confirm` | Confirme le nouveau PIN entreprise |
-| `PATCH` | `/api/enterprises/me` | Met à jour le compte entreprise (nom, téléphone E.164, PIN) — **pas** l’email direct |
-| `DELETE` | `/api/enterprises/me` | Suppression logique (body : `pin`) — liens `revoked`, tokens invalidés |
-| `POST` | `/api/enterprises/logout` | Déconnexion entreprise (invalidation JWT) |
-| `GET` | `/api/enterprises/me/login-history` | Historique connexions entreprise (max 5 entrées formatées) |
-| `POST` | `/api/users` | Inscription : `nom`, `prenom`, `pin` (4–6 chiffres) → `user_id` ; PIN hashé en base — **sans** clé entreprise (V1 : pas de biométrie API) |
-| `POST` | `/api/users/login` | Connexion utilisateur OTP Hora via `phone_number` + `pin` (renvoie tokens) |
-| `POST` | `/api/users/session/unlock` | `refresh_token` + PIN → nouveaux tokens utilisateur |
-| `POST` | `/api/users/refresh-token` | Renouvelle `access_token` + `refresh_token` utilisateur |
-| `POST` | `/api/users/logout` | Déconnexion utilisateur (invalidation serveur des tokens via session version) |
-| `GET` | `/api/users/:user_id` | Profil : nom, prénom, `email`, `email_verified`, contacts, appareils, comptes liés |
-| `PUT` | `/api/users/me/recovery-email` | Définit / modifie l’email de récupération (Bearer) — envoi lien de vérification (mock → logs) |
-| `POST` | `/api/users/email/verify` | Confirme l’email (`token` JWT du lien) |
-| `POST` | `/api/users/pin-recovery/request` | Demande reset PIN par téléphone (`contact`) si email vérifié |
-| `POST` | `/api/users/pin-recovery/confirm` | Nouveau PIN (`token` + `pin`) — usage unique |
-| `GET` | `/api/users/me/login-history` | Dernières connexions utilisateur (max 5) |
-| `PATCH` | `/api/users/:user_id` | Modifie `nom` et/ou `pin` (route protégée, utilisateur propriétaire) |
-| `DELETE` | `/api/users/:user_id` | Supprime son compte OTP Hora (route protégée, utilisateur propriétaire) |
-| `POST` | `/api/contacts` | Contact téléphone (E.164) — **sans** clé entreprise |
-| `POST` | `/api/devices` | Appareil — **Bearer utilisateur obligatoire** |
-| `POST` | `/api/links` | NGONI demande une liaison (`external_ref`) → lien `pending` — **avec** `x-api-key` **ou Bearer entreprise** |
-| `POST` | `/api/links/confirm` | L’utilisateur valide : associe `user_id` au lien → `active` — **sans** clé entreprise |
-| `POST` | `/api/auth/request` | Initialise une demande de liaison avec `id_user` + `status=pending` (retourne `validation_url`) — **avec** `x-api-key` ou Bearer entreprise |
-| `POST` | `/api/auth/status` | Polling du statut avec `id_user` + `status=pending` — **avec** `x-api-key` ou Bearer entreprise |
-| `GET` | `/api/auth/status/:request_id` | Lit le statut en mode legacy (par `request_id`) — **avec** `x-api-key` ou Bearer entreprise |
-| `POST` | `/api/auth/approve/:request_id` | Acceptation utilisateur (corps : `user_id`) — **sans** clé entreprise |
-| `POST` | `/api/auth/reject/:request_id` | Refus utilisateur (corps : `user_id`) — **sans** clé entreprise |
-| `GET` | `/api/auth/events/:request_id` | Journal des événements — **avec** `x-api-key` ou Bearer entreprise |
-
-Les réponses JSON de succès suivent en général le format `{ "data": ... }`. Les erreurs sont unifiées sous `{ "error": { "message", "code", "status" } }`.
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET | `/flow/consent?link_id=X` | Page d'approbation (login ou approve/reject selon l'état) |
+| POST | `/flow/consent/login` | Soumission du login |
+| POST | `/flow/consent/resolve` | Soumission approve/reject |
 
 ---
 
@@ -260,71 +210,71 @@ Les réponses JSON de succès suivent en général le format `{ "data": ... }`. 
 ├── postman/
 │   └── Otp-Hora-Backend.postman_collection.json
 ├── src/
-│   ├── app.js                 # Application Express (middlewares, routes)
-│   ├── server.js              # Point d’entrée HTTP
+│   ├── app.js                 # Express app (middlewares, routes)
+│   ├── server.js              # Entry HTTP
+│   ├── webFlow.js             # Pages HTML /flow/consent/*
 │   ├── config/                # env, Prisma client
-│   ├── common/                # logger, erreurs, auth API key, cache, etc.
-│   └── modules/               # Par domaine : controller / service / repository
+│   ├── common/                # auth, errors, logger, userKey, phone, etc.
+│   └── modules/
+│       ├── health/
 │       ├── users/
 │       ├── enterprise_accounts/
-│       ├── identity_links/
-│       ├── auth_requests/
-│       ├── auth_events/
+│       ├── identity_links/    # liaisons (pending / approved / rejected)
 │       ├── pin_recovery/
 │       ├── user_contacts/
-│       ├── user_devices/
-│       └── health/
+│       └── user_devices/
 ├── .env.example
 ├── PROJECT_SPEC.md
 ├── package.json
 └── README.md
 ```
 
-Architecture cible par module : **controller** (HTTP) → **service** (règles métier) → **repository** (Prisma).
+Architecture par module : **controller** (HTTP) → **service** (règles métier) → **repository** (Prisma).
 
 ---
 
 ## Tests API (Postman)
 
-Une collection Postman est fournie : `postman/Otp-Hora-Backend.postman_collection.json`.
+Collection fournie : `postman/Otp-Hora-Backend.postman_collection.json`.
 
-1. Importer la collection dans Postman.  
-2. Créer un environnement avec `base_url` et `api_key` (après `POST /enterprises/register`).  
-3. Enchaîner : `POST /users` (tokens) ou `POST /users/login` → `GET /users/:user_id` → contacts → **`POST /devices` (Bearer)** → recovery → optionnel `POST /enterprises/register` (tokens entreprise dans les variables `company_*`) → `POST /auth/request` (`id_user`, `pending`) → ouverture de `validation_url` → polling `POST /auth/status` jusqu’à `approved`/`rejected` → events.
+1. Importer la collection.
+2. Créer un environnement avec `base_url` (ex : `http://localhost:3000`) et `api_key` (après `POST /enterprises/register`).
+3. Séquence typique :
+   - `POST /users` (récupère `user_key` + tokens)
+   - `POST /enterprises/register` (récupère `api_key`)
+   - `POST /links` avec `x-api-key` + `user_key` → récupère `link_id` + `consent_url`
+   - Ouvrir la `consent_url` dans un navigateur → login + approve
+   - `GET /links/:link_id` → vérifier que le status est `approved`
 
 ---
 
 ## Déploiement
 
-1. Définir `NODE_ENV=production` et toutes les variables nécessaires sur la plateforme (secrets, `DATABASE_URL`).  
-2. `npm ci` (ou `npm install --omit=dev` si pas de devDependencies). Le script **`postinstall`** exécute `prisma generate` pour générer le client Prisma (nécessaire pour que l’app démarre).  
-3. `npx prisma migrate deploy` puis `npm start`.  
-4. Placer un reverse proxy (TLS, limites de débit complémentaires si besoin).  
-5. Vérifier les journaux structurés (stdout) et centraliser-les (ELK, Datadog, etc.) en production.
+1. Définir `NODE_ENV=production` et toutes les variables sur la plateforme (secrets, `DATABASE_URL`, `PUBLIC_HORA_URL`).
+2. `npm ci` (`postinstall` exécute `prisma generate`).
+3. `npx prisma migrate deploy`.
+4. `npm start` (ou `node src/server.js`).
+5. Reverse proxy pour TLS et logs centralisés en production.
 
 ### Render
 
-- **Build Command** : `npm install` (le `postinstall` lance `prisma generate`). Tu peux aussi utiliser `npm install && npm run build` pour forcer la génération.  
-- **Start Command** : `node src/server.js` (ou `npm start`).  
-- Définir **`DATABASE_URL`** (et les autres variables) dans l’onglet *Environment* avant le déploiement ; exécuter les migrations une fois (shell Render ou job) : `npx prisma migrate deploy`.
+- **Build Command** : `npm install`
+- **Start Command** : `node src/server.js`
+- Définir `DATABASE_URL`, `PUBLIC_HORA_URL=https://otp-hora.onrender.com`, les secrets JWT, etc. dans *Environment*.
+- Lancer les migrations via shell Render : `npx prisma migrate deploy`.
 
 ---
 
 ## Sécurité
 
-- Ne pas exposer `.env` ni les clés API en dépôt.  
-- Rotation des clés API côté entreprise si compromission (invalider l’ancienne entrée en base / statut entreprise).  
-- Le cache API key est **local au processus** : en multi-instances, chaque instance a son propre cache (comportement attendu).  
-- Pour toute évolution majeure, se référer à `PROJECT_SPEC.md` et aux revues de sécurité internes.
+- `.env` non commité (listé dans `.gitignore`).
+- `api_key` entreprise hashée en bcrypt en base, renvoyée en clair **uniquement à l'inscription**. Rotation manuelle si compromission.
+- `user_key` public par design (équivalent d'un identifiant utilisateur), mais ne permet pas l'authentification seul — l'utilisateur doit toujours approuver depuis Hora.
+- Cache API key local au processus (en multi-instances, chaque instance a son propre cache).
+- Rate limiting sur les routes sensibles.
 
 ---
 
 ## Licence
 
-Voir le champ `license` dans `package.json` (par défaut **ISC** si non modifié).
-
----
-
-## Contact / contribution
-
-Adapter cette section aux pratiques de votre organisation (issue tracker, canal Slack, responsable technique).
+Voir `package.json` (ISC par défaut).

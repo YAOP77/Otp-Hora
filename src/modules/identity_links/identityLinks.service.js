@@ -1,129 +1,211 @@
 const { randomUUID } = require('crypto');
+const { URL } = require('url');
 const { Prisma } = require('@prisma/client');
 const identityLinksRepository = require('./identityLinks.repository');
+const usersRepository = require('../users/users.repository');
 const { createError } = require('../../common/errors');
+const { env } = require('../../config/env');
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const USER_KEY_REGEX = /^x-[a-z]{2}-[a-f0-9]{6}$/;
 
 function isUuid(value) {
-  return UUID_REGEX.test(value);
+  return typeof value === 'string' && UUID_REGEX.test(value);
 }
 
-async function requestIdentityLink(payload) {
+function buildConsentUrl(linkId) {
+  const base = new URL('/flow/consent', env.publicHoraUrl);
+  base.searchParams.set('link_id', linkId);
+  return base.toString();
+}
+
+function serializeLink(link, { includeConsentUrl = false } = {}) {
+  const payload = {
+    link_id: link.link_id,
+    company_id: link.company_id,
+    user_id: link.user_id,
+    status: link.status,
+  };
+  if (includeConsentUrl && link.status === 'pending') {
+    payload.consent_url = buildConsentUrl(link.link_id);
+  }
+  return payload;
+}
+
+// ─── ENTERPRISE SIDE ──────────────────────────────────────────────────
+
+// POST /api/links : idempotent link request.
+// - Looks up user by user_key.
+// - Returns existing link (pending / approved / rejected) if one exists for (user, company).
+// - Otherwise creates a new pending link and returns it with a consent_url.
+async function requestLinkByUserKey(payload) {
   const companyId = payload?.company_id;
-  const externalRef =
-    typeof payload?.external_ref === 'string' ? payload.external_ref.trim() : '';
+  const userKey = typeof payload?.user_key === 'string' ? payload.user_key.trim() : '';
 
   if (!companyId) {
-    const error = new Error('company_id introuvable depuis la clé API');
-    error.statusCode = 401;
-    throw error;
+    throw createError('company_id introuvable depuis la clé API', 401, 'UNAUTHORIZED');
+  }
+  if (!userKey) {
+    throw createError('Le champ user_key est obligatoire', 400, 'INVALID_INPUT');
+  }
+  if (!USER_KEY_REGEX.test(userKey)) {
+    throw createError('Le champ user_key est invalide', 400, 'INVALID_USER_KEY');
   }
 
-  if (!externalRef) {
-    throw createError('Le champ external_ref est obligatoire', 400, 'INVALID_INPUT');
+  const user = await usersRepository.findUserByUserKey(userKey);
+  if (!user) {
+    throw createError('Utilisateur Hora introuvable', 404, 'USER_NOT_FOUND');
+  }
+  if (user.status !== 'active') {
+    throw createError('Utilisateur Hora inactif', 409, 'USER_INACTIVE');
   }
 
-  const existing = await identityLinksRepository.findByCompanyAndExternalRef(
+  const existing = await identityLinksRepository.findLinkByUserAndCompany(
+    user.user_id,
     companyId,
-    externalRef,
   );
   if (existing) {
-    throw createError(
-      'Une demande ou un lien existe déjà pour cette référence externe',
-      409,
-      'LINK_OR_REQUEST_EXISTS',
-    );
+    return serializeLink(existing, { includeConsentUrl: true });
   }
 
   try {
-    return await identityLinksRepository.createIdentityLink({
+    const created = await identityLinksRepository.createLink({
       link_id: randomUUID(),
       company_id: companyId,
-      external_ref: externalRef,
-      user_id: null,
+      user_id: user.user_id,
       status: 'pending',
     });
+    return serializeLink(created, { includeConsentUrl: true });
   } catch (error) {
+    // Race condition on unique (user_id, company_id) — retry read
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw createError(
-        'Une demande ou un lien existe déjà pour cette référence externe',
-        409,
-        'LINK_OR_REQUEST_EXISTS',
+      const raced = await identityLinksRepository.findLinkByUserAndCompany(
+        user.user_id,
+        companyId,
       );
+      if (raced) return serializeLink(raced, { includeConsentUrl: true });
     }
     throw error;
   }
 }
 
-async function confirmIdentityLink(payload) {
+// GET /api/links/:link_id : enterprise polls status of one of its links.
+async function getLinkStatus(payload) {
+  const companyId = payload?.company_id;
   const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
-  const userId = typeof payload?.user_id === 'string' ? payload.user_id.trim() : '';
-  const requesterUserId =
-    typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
 
-  if (!linkId || !isUuid(linkId)) {
-    throw createError('Le champ link_id doit être un UUID valide', 400, 'INVALID_UUID');
+  if (!companyId) {
+    throw createError('company_id introuvable depuis la clé API', 401, 'UNAUTHORIZED');
+  }
+  if (!isUuid(linkId)) {
+    throw createError('Le paramètre link_id doit être un UUID valide', 400, 'INVALID_UUID');
   }
 
-  if (!userId || !isUuid(userId)) {
-    throw createError('Le champ user_id doit être un UUID valide', 400, 'INVALID_UUID');
-  }
-
-  if (requesterUserId && requesterUserId !== userId) {
-    throw createError('Accès interdit pour confirmer ce lien', 403, 'FORBIDDEN');
-  }
-
-  const link = await identityLinksRepository.findByLinkIdFull(linkId);
+  const link = await identityLinksRepository.findLinkByIdAndCompany(linkId, companyId);
   if (!link) {
-    throw createError('Lien introuvable', 404, 'LINK_NOT_FOUND');
+    throw createError('Liaison introuvable', 404, 'LINK_NOT_FOUND');
+  }
+  return serializeLink(link, { includeConsentUrl: true });
+}
+
+// ─── USER SIDE ────────────────────────────────────────────────────────
+
+// GET /api/me/links : list current user's links (any status).
+async function listMyLinks(payload) {
+  const userId = payload?.requester_user_id;
+  const statusFilter =
+    typeof payload?.status === 'string' && payload.status ? payload.status : null;
+
+  if (!isUuid(userId)) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
   }
 
+  const links = await identityLinksRepository.listLinksByUser(userId, statusFilter);
+  return links.map((link) => ({
+    link_id: link.link_id,
+    company_id: link.company_id,
+    nom_entreprise: link.enterprise_accounts?.nom_entreprise || null,
+    status: link.status,
+  }));
+}
+
+async function resolveLink(payload, targetStatus) {
+  const userId = payload?.requester_user_id;
+  const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
+
+  if (!isUuid(userId)) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+  if (!isUuid(linkId)) {
+    throw createError('Le paramètre link_id doit être un UUID valide', 400, 'INVALID_UUID');
+  }
+
+  const link = await identityLinksRepository.findLinkByIdAndUser(linkId, userId);
+  if (!link) {
+    throw createError('Liaison introuvable', 404, 'LINK_NOT_FOUND');
+  }
+  if (link.status === targetStatus) {
+    return serializeLink(link);
+  }
   if (link.status !== 'pending') {
     throw createError(
-      'Ce lien ne peut pas être confirmé (pas en attente)',
+      `La liaison n'est pas en attente (status=${link.status})`,
       409,
       'LINK_NOT_PENDING',
     );
   }
 
-  if (link.user_id) {
-    throw createError('Ce lien est déjà associé à un utilisateur', 409, 'LINK_ALREADY_BOUND');
+  const updated = await identityLinksRepository.updateLinkStatus(linkId, targetStatus);
+  return serializeLink(updated);
+}
+
+// POST /api/me/links/:link_id/approve
+async function approveLink(payload) {
+  return resolveLink(payload, 'approved');
+}
+
+// POST /api/me/links/:link_id/reject
+async function rejectLink(payload) {
+  return resolveLink(payload, 'rejected');
+}
+
+// DELETE /api/me/links/:link_id : user deletes a rejected link to allow the
+// enterprise to retry (via a fresh POST /api/links). Only rejected links can
+// be deleted — pending/approved links must be rejected first.
+async function deleteMyLink(payload) {
+  const userId = payload?.requester_user_id;
+  const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
+
+  if (!isUuid(userId)) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+  if (!isUuid(linkId)) {
+    throw createError('Le paramètre link_id doit être un UUID valide', 400, 'INVALID_UUID');
   }
 
-  const user = await identityLinksRepository.findUserById(userId);
-  if (!user) {
-    throw createError('Utilisateur introuvable', 404, 'USER_NOT_FOUND');
+  const link = await identityLinksRepository.findLinkByIdAndUser(linkId, userId);
+  if (!link) {
+    throw createError('Liaison introuvable', 404, 'LINK_NOT_FOUND');
   }
-
-  const existingActive = await identityLinksRepository.findActiveLinkByUserAndCompany(
-    userId,
-    link.company_id,
-  );
-  if (existingActive) {
+  if (link.status !== 'rejected') {
     throw createError(
-      'Un lien actif existe déjà pour cet utilisateur et cette entreprise',
+      'Seules les liaisons rejetées peuvent être supprimées',
       409,
-      'LINK_ALREADY_EXISTS',
+      'LINK_NOT_REJECTED',
     );
   }
 
-  try {
-    return await identityLinksRepository.updateIdentityLinkConfirm(linkId, userId);
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      throw createError(
-        'Un lien actif existe déjà pour cet utilisateur et cette entreprise',
-        409,
-        'LINK_ALREADY_EXISTS',
-      );
-    }
-    throw error;
-  }
+  await identityLinksRepository.deleteLinkById(linkId);
+  return { deleted: true, link_id: linkId };
 }
 
 module.exports = {
-  requestIdentityLink,
-  confirmIdentityLink,
+  requestLinkByUserKey,
+  getLinkStatus,
+  listMyLinks,
+  approveLink,
+  rejectLink,
+  deleteMyLink,
+  buildConsentUrl,
 };

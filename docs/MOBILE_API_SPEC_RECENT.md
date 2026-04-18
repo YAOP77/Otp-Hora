@@ -25,10 +25,21 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - **PIN**: 4 a 6 chiffres (`^\d{4,6}$`), accepte string ou number sur routes qui utilisent `pinFromBody`.
 - **Alias telephone** (selon endpoints): `contact`, `phone`, `phone_number`.
 - **Alias PIN** (selon endpoints): `pin`, `PIN`, `code_pin`.
+- **`user_key`**: identifiant public court de l'utilisateur Hora (format `x-<2 lettres>-<6 hex>`, ex. `x-th-a1b2c3`). Retourne par POST `/api/users`, POST `/api/users/login`, GET `/api/users/:user_id`. Sert de cle d'echange cote entreprise pour initier une liaison via POST `/api/links`.
 - **Auth Bearer**:
   - user: JWT `role: user`
   - entreprise: JWT `role: company`
 - **Auth partenaire**: certaines routes acceptent `x-api-key` **ou** Bearer entreprise.
+
+---
+
+## Modeles de donnees impactes (refactor recent)
+
+- `users` expose desormais un champ **`user_key`** (string unique, ex. `x-th-a1b2c3`). A stocker cote mobile apres inscription / login.
+- `identity_links`:
+  - champ `external_ref` **supprime** (ne plus envoyer ni lire)
+  - champ `status` prend les valeurs `pending`, `approved`, `rejected`
+- Tables `auth_requests` et `auth_events` **supprimees** (plus de flux `/api/auth/*`).
 
 ---
 
@@ -67,7 +78,7 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - Success 201:
 ```json
 {
-  "data": { "user_id": "uuid", "nom": "Yao", "prenom": "Pascal", "status": "active", "role": "user" },
+  "data": { "user_id": "uuid", "user_key": "x-th-a1b2c3", "nom": "Yao", "prenom": "Pascal", "status": "active", "role": "user" },
   "auth": { "access_token": "jwt", "refresh_token": "jwt", "token_type": "Bearer" }
 }
 ```
@@ -75,8 +86,10 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
   - `400 INVALID_PIN_FORMAT`, `400 REQUEST_ERROR` (nom/prenom manquants)
 - Changement recent:
   - PIN mobile tolerant (number/string via alias)
+  - ajout `user_key` dans la reponse (identifiant public a partager aux entreprises)
 - Impact mobile:
   - envoyer `pin` de preference, alias maintenus
+  - persister `user_key` localement pour l'afficher dans le profil / partager a une entreprise
 
 #### POST `/api/users/login`
 - Auth: non
@@ -88,7 +101,7 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - Success 200:
 ```json
 {
-  "data": { "user_id": "uuid", "nom": "Yao", "prenom": "Pascal", "status": "active", "role": "user" },
+  "data": { "user_id": "uuid", "user_key": "x-th-a1b2c3", "nom": "Yao", "prenom": "Pascal", "status": "active", "role": "user" },
   "auth": { "access_token": "jwt", "refresh_token": "jwt", "token_type": "Bearer" }
 }
 ```
@@ -100,8 +113,10 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - Changement recent:
   - login aligne sur format telephone avec indicatif obligatoire
   - alias phone/contact supportes
+  - `user_key` present dans la reponse
 - Impact mobile:
   - stocker numero en E.164 des la saisie
+  - rafraichir `user_key` en cache a chaque login
 
 #### POST `/api/users/session/unlock`
 - Auth: non
@@ -155,7 +170,7 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
   - `user_id` (uuid, obligatoire)
 - Query:
   - `include_pin_hash=true` (optionnel, usage debug)
-- Success 200: objet user + contacts/devices/linked accounts
+- Success 200: objet user contenant notamment `user_id`, `user_key`, `nom`, `prenom`, `status`, `role`, `email`, `email_verified`, `contacts`, `devices`, `linked_accounts_count`, `linked_accounts[]`
 - Erreurs:
   - `400 INVALID_UUID`
   - `403 FORBIDDEN`
@@ -163,8 +178,12 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
   - `401 INVALID_TOKEN`
 - Changement recent:
   - expose `email` + `email_verified` dans profil
+  - expose `user_key` dans profil
+  - `linked_accounts[]` represente les liaisons de l'utilisateur (`link_id`, `company_id`, `status` parmi `pending|approved|rejected`) — plus de champ `external_ref`
 - Impact mobile:
   - source unique pour etat email verification
+  - affichage `user_key` dans l'ecran "partager mon identifiant Hora"
+  - utiliser `linked_accounts[]` pour afficher l'historique des liaisons dans le profil
 
 #### PATCH `/api/users/:user_id`
 - Auth: oui (Bearer user, self only)
@@ -552,95 +571,199 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 
 ---
 
-### Identity links (B2B + user confirmation)
+### Identity links (cote entreprise)
+
+> Le flux de liaison a ete refondu : plus d'`external_ref`, plus de table `auth_requests`. L'entreprise declenche la liaison en passant le `user_key` que l'utilisateur lui a transmis. L'approbation/refus se fait ensuite cote utilisateur via les routes `/api/me/links/*` (voir section suivante).
 
 #### POST `/api/links`
-- Auth: `x-api-key` **ou** Bearer entreprise
+- Auth: `x-api-key` **ou** Bearer entreprise (`requireEnterpriseAuth`)
+- Description: initie (ou recupere) une liaison entre l'entreprise authentifiee et l'utilisateur identifie par `user_key`. **Idempotent** : si une liaison existe deja pour `(user → company)`, elle est retournee telle quelle.
 - Body:
-  - `external_ref` (string, obligatoire)
-- Success 201: lien `pending`
+  - `user_key` (string, obligatoire, format `x-<2 lettres>-<6 hex>`, ex. `x-th-a1b2c3`)
+- Success 201 (liaison creee):
+```json
+{
+  "data": {
+    "link_id": "uuid",
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "status": "pending",
+    "consent_url": "https://otp-hora.onrender.com/flow/consent?link_id=<link_id>"
+  }
+}
+```
+- Success 200 (liaison deja existante):
+```json
+{
+  "data": {
+    "link_id": "uuid",
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "status": "pending|approved|rejected",
+    "consent_url": "https://otp-hora.onrender.com/flow/consent?link_id=<link_id>"
+  }
+}
+```
+  - `consent_url` n'est present que pour `status: pending`.
 - Erreurs:
+  - `400 INVALID_INPUT` (`user_key` manquant)
+  - `400 INVALID_USER_KEY` (format invalide)
   - `401 MISSING_API_KEY|UNAUTHORIZED`
   - `403 INVALID_API_KEY`
-  - `400 INVALID_INPUT`
-  - `409 LINK_OR_REQUEST_EXISTS`
+  - `404 USER_NOT_FOUND`
+  - `409 USER_INACTIVE`
 - Changement recent:
-  - auth flexible API key ou Bearer entreprise
+  - `external_ref` supprime, remplace par `user_key`
+  - comportement idempotent (pas de `409 LINK_OR_REQUEST_EXISTS`)
+  - retourne `consent_url` pour declencher le flow de consentement
 - Impact mobile:
-  - surtout utilise cote partenaire/backend, pas app user
+  - endpoint utilise cote partenaire/entreprise, pas depuis l'app user
+  - cote app entreprise Hora (si presente), remplacer l'ancien DTO `{ external_ref }` par `{ user_key }`
 
-#### POST `/api/links/confirm`
-- Auth: Bearer user
-- Body:
+#### GET `/api/links/:link_id`
+- Auth: `x-api-key` **ou** Bearer entreprise
+- Description: polling du statut courant d'une liaison creee par l'entreprise.
+- URL params:
   - `link_id` (uuid, obligatoire)
-  - `user_id` (uuid, obligatoire, doit matcher token user)
-- Success 200: lien `active`
-- Erreurs: `400 INVALID_UUID|INVALID_INPUT`, `403 FORBIDDEN`, `404 LINK_NOT_FOUND|USER_NOT_FOUND`, `409 LINK_NOT_PENDING|LINK_ALREADY_BOUND|LINK_ALREADY_EXISTS`
-- Changement recent: durcissement checks ownership
+- Success 200:
+```json
+{
+  "data": {
+    "link_id": "uuid",
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "status": "pending|approved|rejected",
+    "consent_url": "https://otp-hora.onrender.com/flow/consent?link_id=<link_id>"
+  }
+}
+```
+  - `consent_url` present seulement si `status === "pending"`.
+- Erreurs: `400 INVALID_UUID`, `401 UNAUTHORIZED`, `404 LINK_NOT_FOUND`
+- Changement recent: nouveau endpoint de polling (remplace l'ancien `GET /api/auth/status/:request_id`)
 
 ---
 
-### Auth requests (demande de validation)
+### Identity links (cote utilisateur — nouvelles routes mobile)
 
-#### POST `/api/auth/request`
-- Auth: `x-api-key` ou Bearer entreprise
-- Body:
-  - `link_id` (uuid, obligatoire)
-- Success 201: `{ data: { request_id, status: "pending", expires_at } }`
-- Erreurs:
-  - `400 INVALID_INPUT|INVALID_UUID`
-  - `401 UNAUTHORIZED`
-  - `403 FORBIDDEN`
-  - `404 LINK_NOT_FOUND`
-  - `409 LINK_NOT_ACTIVE`
-  - `429 RATE_LIMITED`
-- Changement recent:
-  - rate limiting + controles de propriete
-- Impact mobile:
-  - traiter `RATE_LIMITED` avec retry UX
+> Nouveau flux: l'utilisateur gere desormais ses liaisons directement depuis l'app mobile Hora. Quand il ouvre l'app et qu'il a des liaisons `pending`, il peut les approuver ou les refuser sans passer par la page web `/flow/consent`.
 
-#### GET `/api/auth/status/:request_id`
-- Auth: `x-api-key` ou Bearer entreprise
-- URL param: `request_id` uuid obligatoire
-- Success 200: status courant (`pending|approved|rejected|expired`)
-- Erreurs: `400 INVALID_INPUT|INVALID_UUID`, `401`, `403`, `404`
-- Changement recent: coherent status expiry handling
-
-#### POST `/api/auth/approve/:request_id`
-#### POST `/api/auth/reject/:request_id`
-- Auth: Bearer user
-- URL param: `request_id` uuid
-- Body: `user_id` uuid (must match token user)
-- Success 200: statut resolu
-- Erreurs:
-  - `400 INVALID_INPUT|INVALID_UUID`
-  - `403 FORBIDDEN`
-  - `404 REQUEST_NOT_FOUND`
-  - `409 ALREADY_RESOLVED`
-  - `410 REQUEST_EXPIRED`
-  - `429 RATE_LIMITED`
-- Changement recent:
-  - protections concurrence/idempotence ameliorees
-- Impact mobile:
-  - gerer proprement conflict/expired dans UI approval
-
----
-
-### Auth events
-
-#### GET `/api/auth/events/:request_id`
-- Auth: `x-api-key` ou Bearer entreprise
-- URL param: `request_id` uuid
+#### GET `/api/me/links`
+- Auth: oui (Bearer user)
+- Description: liste les liaisons de l'utilisateur authentifie (toutes, ou filtrees par statut).
+- Headers:
+  - `Authorization: Bearer <user_access_token>`
+- Query:
+  - `status` (optionnel): `pending` | `approved` | `rejected`
 - Success 200:
 ```json
 {
   "data": [
-    { "event_id": "uuid", "request_id": "uuid", "action": "created", "created_at": "ISO" }
+    {
+      "link_id": "uuid",
+      "company_id": "uuid",
+      "nom_entreprise": "NGONI",
+      "status": "pending"
+    }
   ]
 }
 ```
-- Erreurs: `400 INVALID_INPUT|INVALID_UUID`, `401`, `403`, `404 REQUEST_NOT_FOUND`
-- Changement recent: endpoint stable, utile debug audit
+- Erreurs:
+  - `401 UNAUTHORIZED|INVALID_TOKEN`
+- Changement recent: nouvelle route exposant les liaisons cote utilisateur
+- Impact mobile:
+  - ecran "Mes liaisons" / notifications en attente
+  - badge de notification quand `status=pending` retourne une liste non vide
+
+#### POST `/api/me/links/:link_id/approve`
+- Auth: oui (Bearer user)
+- Description: approuve une liaison `pending`. Idempotent si la liaison est deja `approved`.
+- URL params:
+  - `link_id` (uuid, obligatoire)
+- Body: aucun (ou `{}`)
+- Success 200:
+```json
+{
+  "data": {
+    "link_id": "uuid",
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "status": "approved"
+  }
+}
+```
+- Erreurs:
+  - `400 INVALID_UUID`
+  - `401 UNAUTHORIZED`
+  - `404 LINK_NOT_FOUND`
+  - `409 LINK_NOT_PENDING` (la liaison est deja `rejected`)
+- Changement recent: remplace l'ancien `POST /api/auth/approve/:request_id` + `POST /api/links/confirm`
+- Impact mobile:
+  - bouton "Approuver" sur la carte liaison
+  - gerer `409 LINK_NOT_PENDING` (proposer suppression si `rejected`)
+
+#### POST `/api/me/links/:link_id/reject`
+- Auth: oui (Bearer user)
+- Description: refuse une liaison `pending`. Idempotent si la liaison est deja `rejected`.
+- URL params:
+  - `link_id` (uuid, obligatoire)
+- Body: aucun (ou `{}`)
+- Success 200:
+```json
+{
+  "data": {
+    "link_id": "uuid",
+    "company_id": "uuid",
+    "user_id": "uuid",
+    "status": "rejected"
+  }
+}
+```
+- Erreurs:
+  - `400 INVALID_UUID`
+  - `401 UNAUTHORIZED`
+  - `404 LINK_NOT_FOUND`
+  - `409 LINK_NOT_PENDING` (la liaison est deja `approved`)
+- Changement recent: remplace l'ancien `POST /api/auth/reject/:request_id`
+- Impact mobile:
+  - bouton "Refuser" sur la carte liaison
+  - afficher message d'aide si `409 LINK_NOT_PENDING`
+
+#### DELETE `/api/me/links/:link_id`
+- Auth: oui (Bearer user)
+- Description: supprime definitivement une liaison **rejetee**. Permet a l'utilisateur de repartir a zero : l'entreprise pourra de nouveau creer une liaison via `POST /api/links` avec le meme `user_key`.
+- URL params:
+  - `link_id` (uuid, obligatoire)
+- Success 200:
+```json
+{
+  "data": {
+    "deleted": true,
+    "link_id": "uuid"
+  }
+}
+```
+- Erreurs:
+  - `400 INVALID_UUID`
+  - `401 UNAUTHORIZED`
+  - `404 LINK_NOT_FOUND`
+  - `409 LINK_NOT_REJECTED` (seules les liaisons `rejected` peuvent etre supprimees)
+- Changement recent: nouvelle route — permet le nettoyage cote utilisateur
+- Impact mobile:
+  - action "Supprimer" disponible uniquement sur les cartes `rejected`
+  - apres succes, retirer la liaison de la liste locale
+
+---
+
+## Deep linking mobile (Universal Links / App Links)
+
+> Important pour l'app Hora mobile : les entreprises recoivent une `consent_url` de la forme `https://otp-hora.onrender.com/flow/consent?link_id=<link_id>` lorsqu'elles appellent `POST /api/links`. Cette URL est partagee a l'utilisateur (SMS, QR code, message in-app partenaire, etc.).
+
+- **Objectif** : quand l'utilisateur Hora a deja l'app installee, cliquer sur `consent_url` doit ouvrir l'app directement sur l'ecran d'approbation de la liaison, sans passer par la page web.
+- **iOS** : configurer les **Universal Links** via `apple-app-site-association` (scope `/flow/consent*`). L'app Flutter doit ecouter l'URL entrante (`uni_links`, `app_links`, ou plugin equivalent) et router vers l'ecran "liaison en attente" avec le `link_id` extrait de la query string.
+- **Android** : configurer les **App Links** via `AndroidManifest.xml` (`intent-filter` avec `autoVerify="true"`) + hosting du `assetlinks.json` sur le domaine `otp-hora.onrender.com`. Meme logique de routing Flutter.
+- **Fallback web** : si l'app n'est pas installee (ou si la verification Universal/App Link echoue), la page web `/flow/consent?link_id=...` reste fonctionnelle et propose l'approbation / refus via navigateur.
+- **Flow recommande app ouverte** : une fois le `link_id` recu via deep link, l'app peut directement appeler `POST /api/me/links/:link_id/approve` ou `/reject` (Bearer user). Pas besoin de refaire un `GET /api/me/links` si l'ecran est focalise.
+- **Flow recommande app fermee** : apres ouverture via deep link, si l'utilisateur n'est pas logge, presenter l'ecran de login puis rediriger automatiquement sur l'ecran liaison avec le `link_id` memorise.
 
 ---
 
@@ -656,6 +779,7 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - Sur forgot PIN:
   - ne pas deduire existence compte d'apres UX
   - respecter message generique backend
+- Ne jamais logger ni exposer `user_key` dans des canaux publics non chiffres ; le traiter comme un identifiant sensible assimile a un numero de compte.
 
 ---
 
@@ -671,6 +795,16 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 5. **Devices**:
    - `/api/devices` user avec Bearer obligatoire
    - `/api/enterprises/me/devices` pour entreprise
+6. **Refactor liaisons identites** (refactor majeur):
+   - ajout du champ **`user_key`** sur les utilisateurs (retourne par inscription / login / profil)
+   - suppression du champ `external_ref` sur `identity_links`
+   - suppression des tables `auth_requests` et `auth_events` (et de toutes les routes `/api/auth/*`)
+   - suppression de la route `POST /api/links/confirm`
+   - `POST /api/links` accepte desormais `{ user_key }` et est idempotent, retourne `{ link_id, status, consent_url }`
+   - nouveau endpoint entreprise `GET /api/links/:link_id` pour polling
+   - nouvelles routes mobile utilisateur: `GET /api/me/links`, `POST /api/me/links/:link_id/approve`, `POST /api/me/links/:link_id/reject`, `DELETE /api/me/links/:link_id`
+   - statuts `identity_links.status` desormais `pending | approved | rejected`
+7. **Deep linking** : `consent_url` pointe vers `https://otp-hora.onrender.com/flow/consent?link_id=<link_id>` ; a intercepter cote mobile via Universal Links (iOS) et App Links (Android).
 
 ---
 
@@ -681,4 +815,11 @@ Objectif: integration mobile sans ambiguite (Flutter/Cursor).
 - Centraliser extraction PIN pour requetes (`pin` prioritaire).
 - Mapper `403 RECOVERY_EMAIL_REQUIRED` vers ecran "ajouter/verifier email".
 - Envoyer `device_name` depuis plugin device info a chaque registration device.
+- Persister `user_key` localement (secure storage) apres inscription/login/profil et l'afficher dans l'ecran "partager mon identifiant Hora".
+- Implementer ecran "Mes liaisons" alimente par `GET /api/me/links` (filtre par defaut `status=pending` pour mettre en avant les actions a faire).
+- Gerer les codes de conflit propres au nouveau flow:
+  - `409 LINK_NOT_PENDING` sur approve/reject → la liaison est deja resolue, recharger la liste.
+  - `409 LINK_NOT_REJECTED` sur DELETE → n'afficher l'action supprimer que si `status === "rejected"`.
+- Configurer Universal Links (iOS) + App Links (Android) pour intercepter `https://otp-hora.onrender.com/flow/consent?link_id=...` et router vers l'ecran d'approbation.
+- Supprimer du code mobile tout reste d'integration des anciennes routes: `POST /api/auth/request`, `GET /api/auth/status/:request_id`, `POST /api/auth/approve/:request_id`, `POST /api/auth/reject/:request_id`, `GET /api/auth/events/:request_id`, `POST /api/links/confirm`, et tout usage du champ `external_ref`.
 

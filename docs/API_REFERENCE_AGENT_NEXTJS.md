@@ -3,9 +3,9 @@
 Documentation **alignée sur le code** (`src/modules/*/routes.js`, contrôleurs et services).  
 **Base path:** toutes les routes listées ci-dessous sont préfixées par **`/api`** (ex. `GET /api/health` → URL complète `https://<host>/api/health`).
 
-**Nombre d’endpoints documentés:** **40** (aucune omission volontaire — inventaire vérifié contre `src/modules/index.js`).
+**Nombre d’endpoints documentés:** **38** (aucune omission volontaire — inventaire vérifié contre `src/modules/index.js`).
 
-> **Note:** un fichier `src/modules/recovery_methods/recovery.routes.js` définit `POST /recovery`, mais ce routeur **n’est pas enregistré** dans `registerRoutes` — **ce n’est pas** une des 39 APIs exposées.
+> **Note:** un fichier `src/modules/recovery_methods/recovery.routes.js` définit `POST /recovery`, mais ce routeur **n’est pas enregistré** dans `registerRoutes` — **ce n’est pas** une des 38 APIs exposées.
 
 ---
 
@@ -13,14 +13,14 @@ Documentation **alignée sur le code** (`src/modules/*/routes.js`, contrôleurs 
 
 ### 1.1 Succès (JSON)
 
-Typiquement :
+Typiquement :
 
 - `{ "data": ... }` pour les réponses JSON structurées.
 - Certaines routes renvoient aussi des champs racine (`auth`, `api_key`) — voir chaque endpoint.
 
 ### 1.2 Erreur (JSON)
 
-Format standard renvoyé par le gestionnaire d’erreurs :
+Format standard renvoyé par le gestionnaire d’erreurs :
 
 ```json
 {
@@ -46,18 +46,19 @@ Format standard renvoyé par le gestionnaire d’erreurs :
 
 ### 1.4 Règles métier globales
 
-- **Téléphone:** format international valide (normalisation **E.164** côté serveur, ex. `+2250700000000`). Erreur possible : `INVALID_PHONE`.
-- **PIN:** **4 à 6 chiffres** (`^\d{4,6}$`). Dans le JSON, le PIN peut être envoyé en **chaîne ou nombre** ; champs acceptés : `pin`, `PIN`, `code_pin`.
+- **Téléphone:** format international valide (normalisation **E.164** côté serveur, ex. `+2250700000000`). Erreur possible : `INVALID_PHONE`.
+- **PIN:** **4 à 6 chiffres** (`^\d{4,6}$`). Dans le JSON, le PIN peut être envoyé en **chaîne ou nombre** ; champs acceptés : `pin`, `PIN`, `code_pin`.
 - **Alias téléphone (exemples):** `phone_number`, `phone`, `contact` — selon l’endpoint, le code lit un ou plusieurs alias.
+- **`user_key`:** identifiant public court de l’utilisateur Hora (format `x-<2 lettres>-<6 hex>`, ex. `x-th-a1b2c3`). Il est retourné par les endpoints d’inscription / connexion / profil et sert de clé d’échange côté **entreprise** (`POST /api/links`).
 - **Limite corps:** JSON ~ **1 MB** (`express.json`).
 
-### 1.5 Authentification « partenaire » (entreprise sur routes `/auth/*`, `/links`)
+### 1.5 Authentification « partenaire » (entreprise sur routes `/links`)
 
-Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`** avec JWT **rôle entreprise** **ou** **`x-api-key`** (clé API bcrypt côté base).
+Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`** avec JWT **rôle entreprise** **ou** **`x-api-key`** (clé API bcrypt côté base).
 
 ---
 
-## 2. Index des 39 APIs
+## 2. Index des 38 APIs
 
 | # | Méthode | Endpoint | Nom court |
 |---|---------|----------|-----------|
@@ -87,20 +88,18 @@ Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`**
 | 24 | POST | `/api/enterprises/me/devices` | Enregistrer appareil entreprise |
 | 25 | GET | `/api/enterprises/me/linked-users` | Utilisateurs liés |
 | 26 | GET | `/api/enterprises/me/login-history` | Historique connexion entreprise |
-| 27 | POST | `/api/auth/request` | Créer demande d’auth |
-| 28 | POST | `/api/auth/status` | Polling statut par `id_user` |
-| 29 | GET | `/api/auth/status/:request_id` | Statut demande d’auth (legacy) |
-| 30 | POST | `/api/auth/approve/:request_id` | Approuver demande |
-| 31 | POST | `/api/auth/reject/:request_id` | Rejeter demande |
-| 32 | GET | `/api/auth/events/:request_id` | Événements liés à la demande |
-| 33 | POST | `/api/users/pin-recovery/request` | Demande reset PIN utilisateur |
-| 34 | POST | `/api/users/pin-recovery/confirm` | Confirmer reset PIN utilisateur |
-| 35 | POST | `/api/enterprises/pin-recovery/request` | Demande reset PIN entreprise |
-| 36 | POST | `/api/enterprises/pin-recovery/confirm` | Confirmer reset PIN entreprise |
-| 37 | POST | `/api/links` | Demander lien d’identité |
-| 38 | POST | `/api/links/confirm` | Confirmer lien d’identité |
-| 39 | POST | `/api/contacts` | Créer contact utilisateur |
-| 40 | POST | `/api/devices` | Enregistrer appareil utilisateur |
+| 27 | POST | `/api/users/pin-recovery/request` | Demande reset PIN utilisateur |
+| 28 | POST | `/api/users/pin-recovery/confirm` | Confirmer reset PIN utilisateur |
+| 29 | POST | `/api/enterprises/pin-recovery/request` | Demande reset PIN entreprise |
+| 30 | POST | `/api/enterprises/pin-recovery/confirm` | Confirmer reset PIN entreprise |
+| 31 | POST | `/api/links` | Demander liaison d’identité (entreprise, via `user_key`) |
+| 32 | GET | `/api/links/:link_id` | Statut d’une liaison (entreprise) |
+| 33 | GET | `/api/me/links` | Liste des liaisons de l’utilisateur |
+| 34 | POST | `/api/me/links/:link_id/approve` | Approuver une liaison (utilisateur) |
+| 35 | POST | `/api/me/links/:link_id/reject` | Refuser une liaison (utilisateur) |
+| 36 | DELETE | `/api/me/links/:link_id` | Supprimer une liaison rejetée (utilisateur) |
+| 37 | POST | `/api/contacts` | Créer contact utilisateur |
+| 38 | POST | `/api/devices` | Enregistrer appareil utilisateur |
 
 ---
 
@@ -113,7 +112,7 @@ Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`**
 | **Auth** | Aucune |
 | **Description** | Vérifie que l’API répond. |
 | **Query / Path** | Aucun |
-| **Réponse 200** | `Content-Type: text/plain` — corps : `API is running` |
+| **Réponse 200** | `Content-Type: text/plain` — corps : `API is running` |
 
 ---
 
@@ -123,7 +122,7 @@ Middleware `requireEnterpriseAuth` : **`Authorization: Bearer <access_token>`**
 |--------|--------|
 | **Auth** | Aucune |
 | **Body (JSON)** | `nom` (string, **requis**), `prenom` (string, **requis**), `pin` \| `PIN` \| `code_pin` (**requis**, 4–6 chiffres) |
-| **Succès 201** | `{ "data": { user_id, nom, prenom, status, role, email? }, "auth": { access_token, refresh_token, token_type: "Bearer" } }` |
+| **Succès 201** | `{ "data": { user_id, user_key, nom, prenom, status, role, email? }, "auth": { access_token, refresh_token, token_type: "Bearer" } }` |
 | **Erreurs** | `400` nom/prenom manquants (message métier, code souvent `REQUEST_ERROR`) ; `400` `INVALID_PIN_FORMAT` ; `400` `INVALID_PHONE` si applicable |
 
 **Exemple requête:**
@@ -135,6 +134,8 @@ Content-Type: application/json
 {"nom":"Yao","prenom":"Pascal","pin":1234}
 ```
 
+> **`user_key`** est un identifiant public court (ex. `x-th-a1b2c3`) à transmettre à une entreprise pour qu’elle puisse initier une liaison via `POST /api/links`.
+
 ---
 
 ### 3.3 — `POST /api/users/login`
@@ -143,7 +144,7 @@ Content-Type: application/json
 |--------|--------|
 | **Auth** | Aucune |
 | **Body** | `phone_number` **ou** `phone` **ou** `contact` (string, **requis**) ; `pin` / alias (**requis**) |
-| **Succès 200** | `{ "data": { user_id, nom, prenom, status, role }, "auth": { access_token, refresh_token, token_type } }` |
+| **Succès 200** | `{ "data": { user_id, user_key, nom, prenom, status, role }, "auth": { access_token, refresh_token, token_type } }` |
 | **Erreurs** | `400` `INVALID_INPUT` (téléphone manquant) ; `400` `INVALID_PIN_FORMAT` ; `401` `INVALID_CREDENTIALS` ; `400` `INVALID_PHONE` |
 
 ---
@@ -218,8 +219,10 @@ Content-Type: application/json
 | **Auth** | Bearer **utilisateur** |
 | **Path** | `user_id` — UUID |
 | **Query** | `include_pin_hash` — si **`true`**, le champ `pin_hash` peut être présent dans `data` |
-| **Succès 200** | `{ "data": { user_id, nom, prenom, status, role, email, email_verified, contacts, devices, linked_accounts_count, linked_accounts[, pin_hash] } }` |
+| **Succès 200** | `{ "data": { user_id, user_key, nom, prenom, status, role, email, email_verified, contacts, devices, linked_accounts_count, linked_accounts[, pin_hash] } }` |
 | **Erreurs** | `400` `INVALID_INPUT` \| `INVALID_UUID` ; `403` `FORBIDDEN` ; `404` `USER_NOT_FOUND` |
+
+> `linked_accounts[]` liste les liaisons actives de l’utilisateur (`link_id`, `company_id`, `status`, …). Le champ `external_ref` n’existe plus dans le modèle.
 
 ---
 
@@ -228,7 +231,7 @@ Content-Type: application/json
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Bearer **utilisateur** (le jeton doit correspondre au **même** `user_id`) |
-| **Body** | Au moins un parmi : `nom` ; `pin` / alias. **Interdit:** champs `email` ou `recovery_email` (utiliser PUT recovery-email) — `400` `USE_RECOVERY_EMAIL_ENDPOINT`. |
+| **Body** | Au moins un parmi : `nom` ; `pin` / alias. **Interdit:** champs `email` ou `recovery_email` (utiliser PUT recovery-email) — `400` `USE_RECOVERY_EMAIL_ENDPOINT`. |
 | **Succès 200** | `{ "data": <utilisateur mis à jour> }` |
 | **Erreurs** | `400` `INVALID_UUID` ; `403` `FORBIDDEN` ; `400` `INVALID_INPUT` (aucune modif) ; `400` `INVALID_PIN_FORMAT` ; `404` `USER_NOT_FOUND` |
 
@@ -249,7 +252,7 @@ Content-Type: application/json
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Aucune |
-| **Body** | `nom_entreprise` **ou** `nom` (**requis**) ; `pin` (**requis**) ; téléphone : `phone` \| `phone_number` \| `contact` |
+| **Body** | `nom_entreprise` **ou** `nom` (**requis**) ; `pin` (**requis**) ; téléphone : `phone` \| `phone_number` \| `contact` |
 | **Succès 201** | `{ "data": { company_id, nom_entreprise, status, phone_e164, role }, "api_key": "<clé en clair une seule fois>", "auth": { access_token, refresh_token, token_type } }` |
 | **Erreurs** | `400` `INVALID_INPUT` \| `INVALID_PIN_FORMAT` ; `400` `INVALID_PHONE` ; `409` `PHONE_ALREADY_REGISTERED` |
 
@@ -325,7 +328,7 @@ Content-Type: application/json
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Bearer **entreprise** |
-| **Body** | Champs optionnels : `nom_entreprise` \| `nom` ; `phone` \| `phone_number` ; `pin` ; **pas** d’email direct (flux recovery-email) |
+| **Body** | Champs optionnels : `nom_entreprise` \| `nom` ; `phone` \| `phone_number` ; `pin` ; **pas** d’email direct (flux recovery-email) |
 | **Succès 200** | `{ "data": <compte mis à jour> }` |
 | **Erreurs** | `400` `INVALID_INPUT` (aucune modif) ; `400` `INVALID_PIN_FORMAT` ; `409` `PHONE_ALREADY_REGISTERED` ; `404` `COMPANY_NOT_FOUND` |
 
@@ -388,84 +391,18 @@ Content-Type: application/json
 
 ---
 
-### 3.27 — `POST /api/auth/request`
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | `requireEnterpriseAuth` — **Bearer entreprise** **ou** `x-api-key` |
-| **Body** | `id_user` (string **requis**) ; `status` (optionnel mais si fourni: `pending`) |
-| **Succès 201** | `{ "data": { request_id, id_user, status: "pending", expires_at, validation_url } }` |
-| **Erreurs** | `401` `UNAUTHORIZED` ; `429` `RATE_LIMITED` ; `400` `INVALID_INPUT` \| `INVALID_STATUS` |
-
----
-
-### 3.28 — `POST /api/auth/status`
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | `requireEnterpriseAuth` |
-| **Body** | `id_user` (string **requis**) ; `status` (optionnel, `pending`) |
-| **Succès 200** | `{ "data": { request_id, id_user, status } }` avec `status` dans `pending` \| `approved` \| `rejected` |
-| **Erreurs** | `401` `UNAUTHORIZED` ; `400` `INVALID_INPUT` |
-
----
-
-### 3.29 — `GET /api/auth/status/:request_id` (legacy)
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | `requireEnterpriseAuth` |
-| **Path** | `request_id` (UUID) |
-| **Succès 200** | `{ "data": { request_id, status, expires_at } }` |
-| **Erreurs** | `401` `UNAUTHORIZED` ; `400` `INVALID_INPUT` \| `INVALID_UUID` ; `404` `REQUEST_NOT_FOUND` ; `404` `LINK_NOT_FOUND` ; `403` `FORBIDDEN` |
-
----
-
-### 3.30 — `POST /api/auth/approve/:request_id`
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | Bearer **utilisateur** |
-| **Path** | `request_id` (UUID) |
-| **Body** | `user_id` (UUID **requis**, doit être **identique** à l’utilisateur du jeton) |
-| **Succès 200** | `{ "data": { request_id, status, expires_at } }` |
-| **Erreurs** | `403` `FORBIDDEN` (user_id ≠ requester) ; `429` `RATE_LIMITED` ; `400` / `404` comme validation ; `409` `ALREADY_RESOLVED` ; `410` `REQUEST_EXPIRED` |
-
----
-
-### 3.31 — `POST /api/auth/reject/:request_id`
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | Bearer **utilisateur** |
-| **Path / Body** | Idem **approve** |
-| **Erreurs** | Même famille que **approve** |
-
----
-
-### 3.32 — `GET /api/auth/events/:request_id`
-
-| Champ | Valeur |
-|--------|--------|
-| **Auth** | `requireEnterpriseAuth` |
-| **Path** | `request_id` (UUID) |
-| **Succès 200** | `{ "data": [ { event_id, request_id, action, created_at }, ... ] }` |
-| **Erreurs** | `401` `UNAUTHORIZED` ; `400` `INVALID_INPUT` \| `INVALID_UUID` ; `404` `REQUEST_NOT_FOUND` \| `LINK_NOT_FOUND` ; `403` `FORBIDDEN` |
-
----
-
-### 3.32 — `POST /api/users/pin-recovery/request`
+### 3.27 — `POST /api/users/pin-recovery/request`
 
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Aucune |
-| **Body** | Au moins un parmi : `contact`, `phone`, `phone_number` (string ≥ 5 car. après trim — schéma Joi) |
+| **Body** | Au moins un parmi : `contact`, `phone`, `phone_number` (string ≥ 5 car. après trim — schéma Joi) |
 | **Succès 200** | `{ "data": { message, expires_in_minutes } }` (message générique si compte éligible) |
 | **Erreurs** | `400` `VALIDATION_ERROR` ; `404` `RECOVERY_NOT_AVAILABLE` ; `403` `RECOVERY_EMAIL_REQUIRED` |
 
 ---
 
-### 3.33 — `POST /api/users/pin-recovery/confirm`
+### 3.28 — `POST /api/users/pin-recovery/confirm`
 
 | Champ | Valeur |
 |--------|--------|
@@ -476,17 +413,17 @@ Content-Type: application/json
 
 ---
 
-### 3.34 — `POST /api/enterprises/pin-recovery/request`
+### 3.29 — `POST /api/enterprises/pin-recovery/request`
 
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Aucune |
-| **Body** | Comme **3.32** |
+| **Body** | Comme **3.27** |
 | **Erreurs** | `404` `RECOVERY_NOT_AVAILABLE` ; `403` `RECOVERY_EMAIL_REQUIRED` |
 
 ---
 
-### 3.35 — `POST /api/enterprises/pin-recovery/confirm`
+### 3.30 — `POST /api/enterprises/pin-recovery/confirm`
 
 | Champ | Valeur |
 |--------|--------|
@@ -497,29 +434,91 @@ Content-Type: application/json
 
 ---
 
-### 3.36 — `POST /api/links`
+### 3.31 — `POST /api/links`
 
 | Champ | Valeur |
 |--------|--------|
-| **Auth** | `requireEnterpriseAuth` |
-| **Body** | `external_ref` (string **requis**) |
-| **Succès 201** | `{ "data": { link_id, company_id, user_id, external_ref, status } }` |
-| **Erreurs** | `401` (message `company_id introuvable...`, code `REQUEST_ERROR` si Error sans code) ; `400` `INVALID_INPUT` ; `409` `LINK_OR_REQUEST_EXISTS` |
+| **Auth** | `requireEnterpriseAuth` — **Bearer entreprise** **ou** `x-api-key` |
+| **Body** | `user_key` (string **requis**, format `x-<2 lettres>-<6 hex>`, ex. `x-th-a1b2c3`) |
+| **Comportement** | **Idempotent.** Si une liaison existe déjà pour `(user_key → user_id, company_id)`, elle est retournée telle quelle. Sinon une nouvelle liaison `pending` est créée. |
+| **Succès 201** | Création d’une nouvelle liaison `pending` : `{ "data": { link_id, company_id, user_id, status: "pending", consent_url } }` |
+| **Succès 200** | Liaison existante retournée (statut `pending` inclut `consent_url` ; `approved` / `rejected` sans `consent_url`) : `{ "data": { link_id, company_id, user_id, status[, consent_url] } }` |
+| **Erreurs** | `400` `INVALID_INPUT` (`user_key` manquant) ; `400` `INVALID_USER_KEY` (format invalide) ; `401` `UNAUTHORIZED` (company_id absent du contexte d’auth) ; `404` `USER_NOT_FOUND` ; `409` `USER_INACTIVE` |
+
+**Exemple requête:**
+
+```http
+POST /api/links HTTP/1.1
+x-api-key: <clé entreprise>
+Content-Type: application/json
+
+{"user_key":"x-th-a1b2c3"}
+```
+
+> L’URL `consent_url` pointe vers le flow de consentement Hora (`/flow/consent?link_id=<link_id>`) ; l’entreprise peut la partager à l’utilisateur pour qu’il approuve/rejette la liaison.
 
 ---
 
-### 3.37 — `POST /api/links/confirm`
+### 3.32 — `GET /api/links/:link_id`
+
+| Champ | Valeur |
+|--------|--------|
+| **Auth** | `requireEnterpriseAuth` — **Bearer entreprise** **ou** `x-api-key` |
+| **Path** | `link_id` (UUID) |
+| **Description** | Permet à une entreprise de récupérer le statut courant d’une liaison qu’elle a créée (polling). |
+| **Succès 200** | `{ "data": { link_id, company_id, user_id, status[, consent_url] } }` — `consent_url` présent uniquement si `status === "pending"` |
+| **Erreurs** | `400` `INVALID_UUID` ; `401` `UNAUTHORIZED` ; `404` `LINK_NOT_FOUND` (inclut le cas où la liaison appartient à une autre entreprise) |
+
+---
+
+### 3.33 — `GET /api/me/links`
 
 | Champ | Valeur |
 |--------|--------|
 | **Auth** | Bearer **utilisateur** |
-| **Body** | `link_id` (UUID) ; `user_id` (UUID) — doivent correspondre au titulaire du token |
-| **Succès 200** | `{ "data": { link_id, company_id, user_id, external_ref, status } }` |
-| **Erreurs** | `400` `INVALID_UUID` ; `403` `FORBIDDEN` ; `404` `LINK_NOT_FOUND` \| `USER_NOT_FOUND` ; `409` `LINK_NOT_PENDING` \| `LINK_ALREADY_BOUND` \| `LINK_ALREADY_EXISTS` |
+| **Query** | `status` (optionnel) — filtre par statut : `pending` \| `approved` \| `rejected` |
+| **Succès 200** | `{ "data": [ { link_id, company_id, nom_entreprise, status } ] }` |
+| **Erreurs** | `401` `UNAUTHORIZED` |
 
 ---
 
-### 3.38 — `POST /api/contacts`
+### 3.34 — `POST /api/me/links/:link_id/approve`
+
+| Champ | Valeur |
+|--------|--------|
+| **Auth** | Bearer **utilisateur** |
+| **Path** | `link_id` (UUID) |
+| **Description** | Approuve la liaison : passe le statut de `pending` à `approved`. Idempotent si déjà `approved`. |
+| **Succès 200** | `{ "data": { link_id, company_id, user_id, status: "approved" } }` |
+| **Erreurs** | `400` `INVALID_UUID` ; `401` `UNAUTHORIZED` ; `404` `LINK_NOT_FOUND` ; `409` `LINK_NOT_PENDING` (la liaison est déjà `rejected`) |
+
+---
+
+### 3.35 — `POST /api/me/links/:link_id/reject`
+
+| Champ | Valeur |
+|--------|--------|
+| **Auth** | Bearer **utilisateur** |
+| **Path** | `link_id` (UUID) |
+| **Description** | Refuse la liaison : passe le statut de `pending` à `rejected`. Idempotent si déjà `rejected`. |
+| **Succès 200** | `{ "data": { link_id, company_id, user_id, status: "rejected" } }` |
+| **Erreurs** | `400` `INVALID_UUID` ; `401` `UNAUTHORIZED` ; `404` `LINK_NOT_FOUND` ; `409` `LINK_NOT_PENDING` (la liaison est déjà `approved`) |
+
+---
+
+### 3.36 — `DELETE /api/me/links/:link_id`
+
+| Champ | Valeur |
+|--------|--------|
+| **Auth** | Bearer **utilisateur** |
+| **Path** | `link_id` (UUID) |
+| **Description** | Supprime définitivement une liaison **rejetée**. Permet à l’utilisateur de « repartir à zéro » : l’entreprise pourra à nouveau créer une liaison via `POST /api/links` avec le même `user_key`. |
+| **Succès 200** | `{ "data": { deleted: true, link_id } }` |
+| **Erreurs** | `400` `INVALID_UUID` ; `401` `UNAUTHORIZED` ; `404` `LINK_NOT_FOUND` ; `409` `LINK_NOT_REJECTED` (seules les liaisons `rejected` peuvent être supprimées ; approuver/refuser avant si nécessaire) |
+
+---
+
+### 3.37 — `POST /api/contacts`
 
 | Champ | Valeur |
 |--------|--------|
@@ -530,7 +529,7 @@ Content-Type: application/json
 
 ---
 
-### 3.39 — `POST /api/devices`
+### 3.38 — `POST /api/devices`
 
 | Champ | Valeur |
 |--------|--------|
@@ -552,9 +551,9 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 
 ### 4.2 Centraliser les appels
 
-- Créer un **module unique** (ex. `lib/api/client.ts`) qui expose :
+- Créer un **module unique** (ex. `lib/api/client.ts`) qui expose :
   - `buildUrl(path: string)`
-  - `apiFetch(path, { method, body, headers, token? })` qui :
+  - `apiFetch(path, { method, body, headers, token? })` qui :
     - envoie `Content-Type: application/json` si `body` est un objet ;
     - ajoute `Authorization: Bearer …` quand un token est fourni ;
     - parse la réponse JSON si `Content-Type` l’indique ;
@@ -569,10 +568,10 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 ### 4.4 Gestion des erreurs
 
 - Toujours lire **`error.code`** et **`error.status`** du JSON d’erreur quand présents.
-- Distinct :
+- Distinct :
   - **Réseau** (pas de réponse, timeout) → message générique + retry optionnel ;
   - **HTTP 4xx/5xx** avec corps JSON → erreur métier affichable (`error.message`) ;
-  - **429** sur `/auth/request` et approve/reject → backoff / message utilisateur.
+  - **409 `LINK_NOT_PENDING` / `LINK_NOT_REJECTED`** sur `/me/links/*` → message utilisateur adapté (la liaison est déjà résolue, ou ne peut pas être supprimée).
 
 ### 4.5 Tokens
 
@@ -583,11 +582,13 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 
 - Respecter les alias (`phone` / `contact`, `pin` / `code_pin`).
 - Ne pas envoyer `email` sur `PATCH /users/:user_id` — utiliser **`PUT /users/me/recovery-email`**.
-- Pour les routes **`requireEnterpriseAuth`**, implémenter soit **JWT entreprise**, soit **`x-api-key`** selon le cas d’usage (intégration serveur-à-serveur vs dashboard connecté).
+- Pour les routes **`requireEnterpriseAuth`** (`POST /api/links`, `GET /api/links/:link_id`), implémenter soit **JWT entreprise**, soit **`x-api-key`** selon le cas d’usage (intégration serveur-à-serveur vs dashboard connecté).
+- Flux liaison côté entreprise : `POST /api/links { user_key }` → récupérer `consent_url` ou poller `GET /api/links/:link_id` jusqu’à `status: approved` / `rejected`.
+- Flux liaison côté utilisateur : `GET /api/me/links?status=pending` → `POST /api/me/links/:link_id/approve` ou `/reject` → (optionnel) `DELETE /api/me/links/:link_id` si `rejected`.
 
 ---
 
-## 5. Checklist de validation (39 APIs + intégration Next.js)
+## 5. Checklist de validation (38 APIs + intégration Next.js)
 
 ### 5.1 Documentation / couverture API
 
@@ -617,20 +618,18 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 - [ ] **24** — `POST /api/enterprises/me/devices`
 - [ ] **25** — `GET /api/enterprises/me/linked-users`
 - [ ] **26** — `GET /api/enterprises/me/login-history`
-- [ ] **27** — `POST /api/auth/request`
-- [ ] **28** — `POST /api/auth/status`
-- [ ] **29** — `GET /api/auth/status/:request_id`
-- [ ] **30** — `POST /api/auth/approve/:request_id`
-- [ ] **31** — `POST /api/auth/reject/:request_id`
-- [ ] **32** — `GET /api/auth/events/:request_id`
-- [ ] **33** — `POST /api/users/pin-recovery/request`
-- [ ] **34** — `POST /api/users/pin-recovery/confirm`
-- [ ] **35** — `POST /api/enterprises/pin-recovery/request`
-- [ ] **36** — `POST /api/enterprises/pin-recovery/confirm`
-- [ ] **37** — `POST /api/links`
-- [ ] **38** — `POST /api/links/confirm`
-- [ ] **39** — `POST /api/contacts`
-- [ ] **40** — `POST /api/devices`
+- [ ] **27** — `POST /api/users/pin-recovery/request`
+- [ ] **28** — `POST /api/users/pin-recovery/confirm`
+- [ ] **29** — `POST /api/enterprises/pin-recovery/request`
+- [ ] **30** — `POST /api/enterprises/pin-recovery/confirm`
+- [ ] **31** — `POST /api/links`
+- [ ] **32** — `GET /api/links/:link_id`
+- [ ] **33** — `GET /api/me/links`
+- [ ] **34** — `POST /api/me/links/:link_id/approve`
+- [ ] **35** — `POST /api/me/links/:link_id/reject`
+- [ ] **36** — `DELETE /api/me/links/:link_id`
+- [ ] **37** — `POST /api/contacts`
+- [ ] **38** — `POST /api/devices`
 
 ### 5.2 Intégration Next.js
 
@@ -638,11 +637,11 @@ Ces consignes supposent une app Next.js **App Router** (13+) ou **Pages Router**
 - [ ] Appels API centralisés (un client HTTP commun).
 - [ ] Gestion des erreurs réseau vs erreurs JSON métier.
 - [ ] Rafraîchissement de token ou flux logout sur 401.
-- [ ] Aucun endpoint « orphelin » dans le code front (rechercher les chemins `/api/` et comparer à la liste §2).
+- [ ] Aucun endpoint « orphelin » dans le code front (rechercher les chemins `/api/` et comparer à la liste §2).
 
 ### 5.3 Vérification fonctionnelle
 
-- [ ] Test manuel ou automatisé : une requête réussie et un cas d’erreur attendu (4xx) par **groupe** (users, enterprises, auth, pin-recovery, links, contacts, devices).
+- [ ] Test manuel ou automatisé : une requête réussie et un cas d’erreur attendu (4xx) par **groupe** (users, enterprises, pin-recovery, links, me/links, contacts, devices).
 - [ ] Healthcheck (`GET /health`) OK en préproduction.
 
 ---

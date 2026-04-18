@@ -1,110 +1,92 @@
 const { prisma } = require('../../config/prisma');
 
-async function findUserById(userId) {
-  return prisma.users.findUnique({
-    where: { user_id: userId },
-    select: { user_id: true },
-  });
-}
+const LINK_SELECT = {
+  link_id: true,
+  company_id: true,
+  user_id: true,
+  status: true,
+};
 
-async function findByUserAndCompany(userId, companyId) {
-  return prisma.identity_links.findFirst({
-    where: {
-      user_id: userId,
-      company_id: companyId,
-    },
+const LINK_WITH_COMPANY_SELECT = {
+  ...LINK_SELECT,
+  enterprise_accounts: {
     select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
+      nom_entreprise: true,
+      deleted_at: true,
       status: true,
     },
-  });
-}
+  },
+};
 
-async function findActiveLinkByUserAndCompany(userId, companyId) {
+async function findLinkByUserAndCompany(userId, companyId) {
   return prisma.identity_links.findFirst({
-    where: {
-      user_id: userId,
-      company_id: companyId,
-      status: 'active',
-    },
-    select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
-      status: true,
-    },
+    where: { user_id: userId, company_id: companyId },
+    select: LINK_SELECT,
   });
 }
 
-async function findByCompanyAndExternalRef(companyId, externalRef) {
-  return prisma.identity_links.findFirst({
-    where: {
-      company_id: companyId,
-      external_ref: externalRef,
-    },
-    select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
-      status: true,
-    },
-  });
-}
-
-async function findByLinkIdFull(linkId) {
+async function findLinkById(linkId) {
   return prisma.identity_links.findUnique({
     where: { link_id: linkId },
-    select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
-      status: true,
-    },
+    select: LINK_SELECT,
   });
 }
 
-async function createIdentityLink(data) {
+async function findLinkByIdAndCompany(linkId, companyId) {
+  return prisma.identity_links.findFirst({
+    where: { link_id: linkId, company_id: companyId },
+    select: LINK_SELECT,
+  });
+}
+
+async function findLinkByIdAndUser(linkId, userId) {
+  return prisma.identity_links.findFirst({
+    where: { link_id: linkId, user_id: userId },
+    select: LINK_SELECT,
+  });
+}
+
+async function listLinksByUser(userId, statusFilter) {
+  return prisma.identity_links.findMany({
+    where: {
+      user_id: userId,
+      ...(statusFilter ? { status: statusFilter } : {}),
+      enterprise_accounts: { deleted_at: null },
+    },
+    select: LINK_WITH_COMPANY_SELECT,
+    orderBy: { link_id: 'desc' },
+  });
+}
+
+async function createLink(data) {
   return prisma.identity_links.create({
     data,
-    select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
-      status: true,
-    },
+    select: LINK_SELECT,
   });
 }
 
-async function updateIdentityLinkConfirm(linkId, userId) {
+async function updateLinkStatus(linkId, status) {
   return prisma.identity_links.update({
     where: { link_id: linkId },
-    data: {
-      user_id: userId,
-      status: 'active',
-    },
-    select: {
-      link_id: true,
-      company_id: true,
-      user_id: true,
-      external_ref: true,
-      status: true,
-    },
+    data: { status },
+    select: LINK_SELECT,
+  });
+}
+
+async function deleteLinkById(linkId) {
+  return prisma.identity_links.delete({
+    where: { link_id: linkId },
+    select: { link_id: true },
   });
 }
 
 module.exports = {
-  findUserById,
-  findByUserAndCompany,
-  findActiveLinkByUserAndCompany,
-  findByCompanyAndExternalRef,
-  findByLinkIdFull,
-  createIdentityLink,
-  updateIdentityLinkConfirm,
+  findLinkByUserAndCompany,
+  findLinkById,
+  findLinkByIdAndCompany,
+  findLinkByIdAndUser,
+  listLinksByUser,
+  createLink,
+  updateLinkStatus,
+  deleteLinkById,
 };

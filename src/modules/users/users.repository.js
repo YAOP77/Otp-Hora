@@ -7,9 +7,23 @@ async function createUser(data) {
       user_id: true,
       nom: true,
       prenom: true,
+      user_key: true,
       status: true,
       role: true,
       email: true,
+    },
+  });
+}
+
+async function findUserByUserKey(userKey) {
+  return prisma.users.findUnique({
+    where: { user_key: userKey },
+    select: {
+      user_id: true,
+      user_key: true,
+      status: true,
+      nom: true,
+      prenom: true,
     },
   });
 }
@@ -21,6 +35,7 @@ async function findUserProfileById(userId) {
       user_id: true,
       nom: true,
       prenom: true,
+      user_key: true,
       pin_hash: true,
       status: true,
       role: true,
@@ -45,7 +60,7 @@ async function findUserProfileById(userId) {
       },
       identity_links: {
         where: {
-          status: 'active',
+          status: 'approved',
           enterprise_accounts: {
             deleted_at: null,
             status: { in: ['active', 'valider'] },
@@ -53,7 +68,6 @@ async function findUserProfileById(userId) {
         },
         select: {
           link_id: true,
-          external_ref: true,
           status: true,
           company_id: true,
           enterprise_accounts: {
@@ -93,6 +107,7 @@ async function findUserForLoginByPhone(phoneNumber) {
     },
     select: {
       user_id: true,
+      user_key: true,
       nom: true,
       prenom: true,
       pin_hash: true,
@@ -213,6 +228,7 @@ async function listUserLoginHistory(userId, limit) {
 
 module.exports = {
   createUser,
+  findUserByUserKey,
   findUserProfileById,
   findUserById,
   findUserForLoginByPhone,

@@ -10,6 +10,7 @@ model users {
   user_id            String    @id @default(uuid()) @db.Uuid
   nom                String
   prenom             String
+  user_key           String    @unique
   pin_hash           String
   token_version      Int       @default(0)
   status             String
@@ -133,35 +134,13 @@ model pin_reset_tokens {
 model identity_links {
   link_id      String @id @default(uuid()) @db.Uuid
   company_id   String @db.Uuid
-  user_id      String? @db.Uuid
-  external_ref String
+  user_id      String @db.Uuid
   status       String
 
   enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
-  users               users?              @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
-  auth_requests       auth_requests[]
+  users               users               @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
 
   @@unique([user_id, company_id])
-  @@unique([company_id, external_ref])
-}
-
-model auth_requests {
-  request_id String   @id @default(uuid()) @db.Uuid
-  link_id    String   @db.Uuid
-  status     String
-  expires_at DateTime
-
-  identity_links identity_links @relation(fields: [link_id], references: [link_id], onDelete: Cascade)
-  auth_events    auth_events[]
-}
-
-model auth_events {
-  event_id   String   @id @default(uuid()) @db.Uuid
-  request_id String   @db.Uuid
-  action     String
-  created_at DateTime @default(now())
-
-  auth_requests auth_requests @relation(fields: [request_id], references: [request_id], onDelete: Cascade)
 }
 
 model recovery_methods {

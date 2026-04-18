@@ -18,6 +18,7 @@ const {
   sendEmailVerification,
   buildVerifyEmailUrl,
 } = require('../../common/emailService');
+const { generateUniqueUserKey } = require('../../common/userKey');
 
 const PIN_REGEX = /^\d{4,6}$/;
 const UUID_REGEX =
@@ -69,10 +70,16 @@ async function createUser(payload) {
 
   const pin_hash = await bcrypt.hash(pin, 12);
 
+  const user_key = await generateUniqueUserKey(prenom, async (candidate) => {
+    const existing = await usersRepository.findUserByUserKey(candidate);
+    return Boolean(existing);
+  });
+
   const createdUser = await usersRepository.createUser({
     user_id: randomUUID(),
     nom,
     prenom,
+    user_key,
     pin_hash,
     token_version: 0,
     status: 'active',
@@ -120,6 +127,7 @@ async function loginUser(payload) {
   return {
     user: {
       user_id: user.user_id,
+      user_key: user.user_key,
       nom: user.nom,
       prenom: user.prenom,
       status: user.status,
@@ -199,12 +207,12 @@ async function getUserProfile(payload) {
     link_id: link.link_id,
     company_id: link.company_id,
     nom_entreprise: link.enterprise_accounts?.nom_entreprise || null,
-    external_ref: link.external_ref,
     status: link.status,
   }));
 
   return {
     user_id: user.user_id,
+    user_key: user.user_key,
     nom: user.nom,
     prenom: user.prenom,
     status: user.status,

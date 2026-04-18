@@ -247,11 +247,11 @@ async function getEnterpriseProfile(companyId) {
 
   const linked_users = linkedRows.map((row) => ({
     link_id: row.link_id,
-    external_ref: row.external_ref,
     status: row.status,
     user: row.users
       ? {
           user_id: row.users.user_id,
+          user_key: row.users.user_key,
           nom: row.users.nom,
           prenom: row.users.prenom,
           status: row.users.status,

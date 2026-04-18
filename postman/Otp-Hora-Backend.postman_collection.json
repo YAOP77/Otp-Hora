@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "OTP Hora Backend API",
-    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links`, `auth/*` (serveur) acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison : `POST /links` → `POST /links/confirm` → `auth/request` → approve/reject.",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links` acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens + `user_key`.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison (entreprise) : `POST /links { user_key }` → `GET /links/:link_id` (polling).\n7. Liaison (utilisateur) : `GET /me/links?status=pending` → `POST /me/links/:link_id/approve|reject` → (optionnel) `DELETE /me/links/:link_id` si rejeté.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_postman_id": "otp-hora-backend-v1"
   },
@@ -39,16 +39,8 @@
       "value": ""
     },
     {
-      "key": "auth_request_id",
-      "value": ""
-    },
-    {
       "key": "recovery_id",
       "value": ""
-    },
-    {
-      "key": "external_ref",
-      "value": "ext-user-001"
     },
     {
       "key": "access_token",
@@ -67,16 +59,8 @@
       "value": ""
     },
     {
-      "key": "id_user",
-      "value": "x-th-a1"
-    },
-    {
-      "key": "validation_url",
+      "key": "user_key",
       "value": ""
-    },
-    {
-      "key": "auth_status",
-      "value": "pending"
     }
   ],
   "item": [
@@ -105,101 +89,6 @@
               }
             }
           ]
-        }
-      ]
-    },
-    {
-      "name": "NEW AUTH FLOW (x-api-key + redirect)",
-      "description": "Flux simplifi� : l'entreprise envoie `id_user` + `status=pending` � `/auth/request`, r�cup�re un `validation_url`, puis poll `/auth/status` avec le m�me `id_user`.",
-      "item": [
-        {
-          "name": "[ENTREPRISE] POST Optional Create Link (legacy) � /api/links",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"external_ref\": \"{{external_ref}}\"\n}"
-            },
-            "url": "{{base_url}}/links",
-            "description": "Crée une liaison `pending` pour l’utilisateur externe (external_ref). Réponse 201: `data.link_id`."
-          }
-        },
-        {
-          "name": "[ENTREPRISE] POST Init Link Request (x-api-key) � /api/auth/request",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
-            },
-            "url": "{{base_url}}/auth/request",
-            "description": "Initialise (ou r�utilise) une demande de liaison pour `id_user`. Retourne `request_id`, `status`, `validation_url`."
-          }
-        },
-        {
-          "name": "[ENTREPRISE] POST Poll Auth Status (x-api-key) � /api/auth/status",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "url": "{{base_url}}/auth/status",
-            "description": "Polling du statut (`pending`, `approved`, `rejected`) pour le m�me `id_user`.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
-            }
-          }
-        },
-        {
-          "name": "[ENTREPRISE] GET Auth Events (x-api-key) — /api/auth/events/:request_id",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "url": "{{base_url}}/auth/events/{{auth_request_id}}",
-            "description": "Audit trail (created/approved/rejected)."
-          }
-        },
-        {
-          "name": "[USER] OPEN Consent UI (redirect) — /flow/consent",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": "{{host_url}}/flow/consent?link_id={{link_id}}&request_id={{auth_request_id}}&callback_url={{host_url}}",
-            "description": "Page web Hora : l’utilisateur se connecte (téléphone+PIN), confirme la liaison et approuve/rejette. En prod, `callback_url` doit être une URL Ngoni autorisée."
-          }
         }
       ]
     },
@@ -504,6 +393,10 @@
                   "    pm.environment.set('user_id', j.data.user_id);",
                   "    pm.collectionVariables.set('user_id', j.data.user_id);",
                   "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
+                  "  }",
                   "  if (j.auth && j.auth.access_token) {",
                   "    pm.environment.set('access_token', j.auth.access_token);",
                   "    pm.collectionVariables.set('access_token', j.auth.access_token);",
@@ -552,6 +445,10 @@
                   "  if (j.data && j.data.user_id) {",
                   "    pm.environment.set('user_id', j.data.user_id);",
                   "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
                   "  }",
                   "  if (j.auth && j.auth.access_token) {",
                   "    pm.environment.set('access_token', j.auth.access_token);",
@@ -960,7 +857,7 @@
       "name": "identity_links",
       "item": [
         {
-          "name": "[ENTREPRISE] POST Request identity link",
+          "name": "[ENTREPRISE] POST Request identity link (user_key)",
           "request": {
             "method": "POST",
             "header": [
@@ -975,10 +872,10 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"external_ref\": \"{{external_ref}}\"\n}"
+              "raw": "{\n  \"user_key\": \"{{user_key}}\"\n}"
             },
             "url": "{{base_url}}/links",
-            "description": "NGONI demande une liaison (`status: pending`). Réponse : `link_id` + `external_ref`."
+            "description": "L'entreprise demande une liaison pour l'utilisateur Hora identifié par `user_key`. Idempotent : si la liaison existe déjà pour (user_key, company_id), renvoie l'existante avec son statut actuel (201 si création, 200 si récupération). Réponse : `{ link_id, company_id, user_id, status, consent_url }`."
           },
           "event": [
             {
@@ -986,7 +883,7 @@
               "script": {
                 "exec": [
                   "pm.test('Status in expected range', function () {",
-                  "  pm.expect([201,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "  pm.expect([200,201,400,401,403,404,409,500]).to.include(pm.response.code);",
                   "});",
                   "pm.test('JSON has data or error', function () {",
                   "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
@@ -997,6 +894,10 @@
                   "    pm.environment.set('link_id', j.data.link_id);",
                   "    pm.collectionVariables.set('link_id', j.data.link_id);",
                   "  }",
+                  "  if (j.data && j.data.consent_url) {",
+                  "    pm.environment.set('consent_url', j.data.consent_url);",
+                  "    pm.collectionVariables.set('consent_url', j.data.consent_url);",
+                  "  }",
                   "} catch (e) {}"
                 ],
                 "type": "text/javascript"
@@ -1005,21 +906,77 @@
           ]
         },
         {
-          "name": "[UTILISATEUR] POST Confirm identity link",
+          "name": "[ENTREPRISE] GET Link status (polling)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/links/{{link_id}}",
+            "description": "Polling du statut d'une liaison par l'entreprise. Retourne `{ link_id, user_id, company_id, status, consent_url (si pending) }`. Statuts possibles : `pending`, `approved`, `rejected`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] GET My links",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/me/links",
+            "description": "Liste des liaisons de l'utilisateur connecté. Query optionnel : `?status=pending|approved|rejected` pour filtrer."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Approve link",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
-                "value": "application/json"
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"link_id\": \"{{link_id}}\",\n  \"user_id\": \"{{user_id}}\"\n}"
-            },
-            "url": "{{base_url}}/links/confirm",
-            "description": "Après validation utilisateur : active le lien (`status: active`). Sans `x-api-key`."
+            "url": "{{base_url}}/me/links/{{link_id}}/approve",
+            "description": "L'utilisateur approuve une liaison pending. Erreurs : 404 `LINK_NOT_FOUND`, 409 `LINK_NOT_PENDING`."
           },
           "event": [
             {
@@ -1039,57 +996,17 @@
           ]
         },
         {
-          "name": "[ENTREPRISE] GET List links (non implémenté)",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "url": "{{base_url}}/links",
-            "description": "**Backend actuel** : route non exposée → **404** attendu. Conservé pour futur endpoint ou tests de régression."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Returns 404 if not implemented', function () {",
-                  "  pm.expect([404,200,401,403]).to.include(pm.response.code);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "auth_requests",
-      "item": [
-        {
-          "name": "[ENTREPRISE] POST Init link/auth request (id_user)",
+          "name": "[UTILISATEUR] POST Reject link",
           "request": {
             "method": "POST",
             "header": [
               {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
-            },
-            "url": "{{base_url}}/auth/request",
-            "description": "Cr�e ou r�utilise une demande de liaison bas�e sur `id_user`. Retourne `validation_url` pour consentement utilisateur."
+            "url": "{{base_url}}/me/links/{{link_id}}/reject",
+            "description": "L'utilisateur refuse une liaison pending. Erreurs : 404 `LINK_NOT_FOUND`, 409 `LINK_NOT_PENDING`."
           },
           "event": [
             {
@@ -1097,101 +1014,7 @@
               "script": {
                 "exec": [
                   "pm.test('Status in expected range', function () {",
-                  "  pm.expect([201,400,401,403,404,429,500]).to.include(pm.response.code);",
-                  "});",
-                  "pm.test('JSON has data or error', function () {",
-                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});",
-                  "try {",
-                  "  const j = pm.response.json();",
-                  "  if (j.data && j.data.request_id) {",
-                  "    pm.environment.set('auth_request_id', j.data.request_id);",
-                  "    pm.collectionVariables.set('auth_request_id', j.data.request_id);",
-                  "  }",
-                  "  if (j.data && j.data.validation_url) {",
-                  "    pm.environment.set('validation_url', j.data.validation_url);",
-                  "    pm.collectionVariables.set('validation_url', j.data.validation_url);",
-                  "  }",
-                  "  if (j.data && j.data.status) {",
-                  "    pm.environment.set('auth_status', j.data.status);",
-                  "    pm.collectionVariables.set('auth_status', j.data.status);",
-                  "  }",
-                  "} catch (e) {}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "[ENTREPRISE] POST Poll auth status (id_user)",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              },
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "url": "{{base_url}}/auth/status",
-            "description": "Interroge le statut actuel de la liaison pour `id_user` (pending/approved/rejected).",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"id_user\": \"{{id_user}}\",\n  \"status\": \"pending\"\n}"
-            }
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status in expected range', function () {",
-                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
-                  "});",
-                  "pm.test('JSON has data or error', function () {",
-                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});",
-                  "try {",
-                  "  const j = pm.response.json();",
-                  "  if (j.data && j.data.status) {",
-                  "    pm.environment.set('auth_status', j.data.status);",
-                  "    pm.collectionVariables.set('auth_status', j.data.status);",
-                  "  }",
-                  "} catch (e) {}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        },
-        {
-          "name": "[UTILISATEUR] POST Approve auth request",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}"
-            },
-            "url": "{{base_url}}/auth/approve/{{auth_request_id}}",
-            "description": "Action utilisateur OTP Hora : approuve la demande (corps : `user_id`). Sans `x-api-key`."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status in expected range', function () {",
-                  "  pm.expect([200,400,401,403,404,409,410,429,500]).to.include(pm.response.code);",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
                   "});",
                   "pm.test('JSON has data or error', function () {",
                   "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
@@ -1203,21 +1026,17 @@
           ]
         },
         {
-          "name": "[UTILISATEUR] POST Reject auth request",
+          "name": "[UTILISATEUR] DELETE Rejected link",
           "request": {
-            "method": "POST",
+            "method": "DELETE",
             "header": [
               {
-                "key": "Content-Type",
-                "value": "application/json"
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
               }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"user_id\": \"{{user_id}}\"\n}"
-            },
-            "url": "{{base_url}}/auth/reject/{{auth_request_id}}",
-            "description": "Action utilisateur OTP Hora : rejette la demande (`user_id` dans le corps). Sans `x-api-key`."
+            "url": "{{base_url}}/me/links/{{link_id}}",
+            "description": "L'utilisateur supprime une liaison rejetée pour permettre au partenaire de retenter. Seules les liaisons en statut `rejected` peuvent être supprimées. Erreur : 409 `LINK_NOT_REJECTED` si autre statut."
           },
           "event": [
             {
@@ -1225,52 +1044,11 @@
               "script": {
                 "exec": [
                   "pm.test('Status in expected range', function () {",
-                  "  pm.expect([200,400,401,403,404,409,410,429,500]).to.include(pm.response.code);",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
                   "});",
                   "pm.test('JSON has data or error', function () {",
                   "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
                   "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "name": "auth_events",
-      "item": [
-        {
-          "name": "[ENTREPRISE] GET Auth events by request",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "x-api-key",
-                "value": "{{api_key}}"
-              }
-            ],
-            "url": "{{base_url}}/auth/events/{{auth_request_id}}",
-            "description": "Liste les événements (`created`, `approved`, `rejected`) pour la demande."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status in expected range', function () {",
-                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
-                  "});",
-                  "pm.test('JSON has data or error', function () {",
-                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
-                  "});",
-                  "if (pm.response.code === 200) {",
-                  "  try {",
-                  "    const j = pm.response.json();",
-                  "    pm.test('data is array', function () { pm.expect(Array.isArray(j.data)).to.be.true; });",
-                  "  } catch (e) {}",
-                  "}"
                 ],
                 "type": "text/javascript"
               }

@@ -1,37 +1,82 @@
 const identityLinksService = require('./identityLinks.service');
 
-async function requestIdentityLink(req, res, next) {
+async function requestLink(req, res, next) {
   try {
-    const link = await identityLinksService.requestIdentityLink({
+    const link = await identityLinksService.requestLinkByUserKey({
       company_id: req.enterprise?.company_id,
-      external_ref: req.body?.external_ref,
+      user_key: req.body?.user_key,
     });
-
-    return res.status(201).json({
-      data: link,
-    });
+    return res.status(link.status === 'pending' ? 201 : 200).json({ data: link });
   } catch (error) {
     return next(error);
   }
 }
 
-async function confirmIdentityLink(req, res, next) {
+async function getLinkStatus(req, res, next) {
   try {
-    const link = await identityLinksService.confirmIdentityLink({
-      link_id: req.body?.link_id,
-      user_id: req.body?.user_id,
-      requester_user_id: req.userAuth?.user_id,
+    const link = await identityLinksService.getLinkStatus({
+      company_id: req.enterprise?.company_id,
+      link_id: req.params?.link_id,
     });
+    return res.status(200).json({ data: link });
+  } catch (error) {
+    return next(error);
+  }
+}
 
-    return res.status(200).json({
-      data: link,
+async function listMyLinks(req, res, next) {
+  try {
+    const links = await identityLinksService.listMyLinks({
+      requester_user_id: req.userAuth?.user_id,
+      status: req.query?.status,
     });
+    return res.status(200).json({ data: links });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function approveLink(req, res, next) {
+  try {
+    const link = await identityLinksService.approveLink({
+      requester_user_id: req.userAuth?.user_id,
+      link_id: req.params?.link_id,
+    });
+    return res.status(200).json({ data: link });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function rejectLink(req, res, next) {
+  try {
+    const link = await identityLinksService.rejectLink({
+      requester_user_id: req.userAuth?.user_id,
+      link_id: req.params?.link_id,
+    });
+    return res.status(200).json({ data: link });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function deleteMyLink(req, res, next) {
+  try {
+    const result = await identityLinksService.deleteMyLink({
+      requester_user_id: req.userAuth?.user_id,
+      link_id: req.params?.link_id,
+    });
+    return res.status(200).json({ data: result });
   } catch (error) {
     return next(error);
   }
 }
 
 module.exports = {
-  requestIdentityLink,
-  confirmIdentityLink,
+  requestLink,
+  getLinkStatus,
+  listMyLinks,
+  approveLink,
+  rejectLink,
+  deleteMyLink,
 };
