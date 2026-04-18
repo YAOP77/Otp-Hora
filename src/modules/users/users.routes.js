@@ -14,6 +14,7 @@ router.put(
   usersController.setRecoveryEmail,
 );
 router.post('/users/email/verify', usersController.verifyRecoveryEmail);
+router.get('/users/me', requireUserAccessToken, usersController.getMe);
 router.get('/users/me/login-history', requireUserAccessToken, usersController.listUserLoginHistory);
 router.get('/users/me/user-key', requireUserAccessToken, usersController.getUserKey);
 router.post('/users/logout', requireUserAccessToken, usersController.logoutUser);

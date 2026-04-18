@@ -73,6 +73,19 @@ async function getUserProfile(req, res, next) {
   }
 }
 
+async function getMe(req, res, next) {
+  try {
+    const userId = req.userAuth?.user_id;
+    const user = await usersService.getUserProfile({
+      user_id: userId,
+      requester_user_id: userId,
+    });
+    return res.status(200).json({ data: user });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function refreshUserToken(req, res, next) {
   try {
     const auth = await usersService.refreshUserToken({
@@ -193,6 +206,7 @@ module.exports = {
   deleteUser,
   listUserLoginHistory,
   getUserKey,
+  getMe,
   setRecoveryEmail,
   verifyRecoveryEmail,
 };
