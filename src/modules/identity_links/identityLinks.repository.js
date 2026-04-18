@@ -5,6 +5,8 @@ const LINK_SELECT = {
   company_id: true,
   user_id: true,
   status: true,
+  created_at: true,
+  updated_at: true,
 };
 
 const LINK_WITH_COMPANY_SELECT = {
@@ -14,6 +16,18 @@ const LINK_WITH_COMPANY_SELECT = {
       nom_entreprise: true,
       deleted_at: true,
       status: true,
+    },
+  },
+};
+
+const LINK_WITH_USER_SELECT = {
+  ...LINK_SELECT,
+  users: {
+    select: {
+      user_id: true,
+      user_key: true,
+      nom: true,
+      prenom: true,
     },
   },
 };
@@ -29,6 +43,13 @@ async function findLinkById(linkId) {
   return prisma.identity_links.findUnique({
     where: { link_id: linkId },
     select: LINK_SELECT,
+  });
+}
+
+async function findLinkWithCompanyById(linkId) {
+  return prisma.identity_links.findUnique({
+    where: { link_id: linkId },
+    select: LINK_WITH_COMPANY_SELECT,
   });
 }
 
@@ -54,7 +75,18 @@ async function listLinksByUser(userId, statusFilter) {
       enterprise_accounts: { deleted_at: null },
     },
     select: LINK_WITH_COMPANY_SELECT,
-    orderBy: { link_id: 'desc' },
+    orderBy: { created_at: 'desc' },
+  });
+}
+
+async function listLinksByCompany(companyId, statusFilter) {
+  return prisma.identity_links.findMany({
+    where: {
+      company_id: companyId,
+      ...(statusFilter ? { status: statusFilter } : {}),
+    },
+    select: LINK_WITH_USER_SELECT,
+    orderBy: { created_at: 'desc' },
   });
 }
 
@@ -83,9 +115,11 @@ async function deleteLinkById(linkId) {
 module.exports = {
   findLinkByUserAndCompany,
   findLinkById,
+  findLinkWithCompanyById,
   findLinkByIdAndCompany,
   findLinkByIdAndUser,
   listLinksByUser,
+  listLinksByCompany,
   createLink,
   updateLinkStatus,
   deleteLinkById,

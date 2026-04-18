@@ -1,5 +1,9 @@
 const { randomBytes } = require('crypto');
 
+const BASE62_ALPHABET =
+  '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const SUFFIX_LENGTH = 5;
+
 // Returns a 2-letter lowercase prefix derived from the user's first name.
 // Falls back to "us" if the name has no usable letters (e.g. only accents/digits).
 function prefixFromPrenom(prenom) {
@@ -13,12 +17,20 @@ function prefixFromPrenom(prenom) {
   return 'us';
 }
 
-// Generates a candidate user_key of the form "x-XX-YYYYYY" (11 chars).
-// The 6-hex suffix gives 16.7M combinations per prefix (collision-safe in practice).
+// 5-char base62 suffix → 62^5 ≈ 916M combinations per prefix.
+function randomSuffix() {
+  const bytes = randomBytes(SUFFIX_LENGTH);
+  let out = '';
+  for (let i = 0; i < SUFFIX_LENGTH; i += 1) {
+    out += BASE62_ALPHABET[bytes[i] % 62];
+  }
+  return out;
+}
+
+// Generates a candidate user_key of the form "x-XX-YYYYY" (10 chars).
 function buildUserKey(prenom) {
   const prefix = prefixFromPrenom(prenom);
-  const suffix = randomBytes(3).toString('hex');
-  return `x-${prefix}-${suffix}`;
+  return `x-${prefix}-${randomSuffix()}`;
 }
 
 // Tries up to `maxAttempts` times to produce a unique user_key.

@@ -15,6 +15,7 @@ router.put(
 );
 router.post('/users/email/verify', usersController.verifyRecoveryEmail);
 router.get('/users/me/login-history', requireUserAccessToken, usersController.listUserLoginHistory);
+router.get('/users/me/user-key', requireUserAccessToken, usersController.getUserKey);
 router.post('/users/logout', requireUserAccessToken, usersController.logoutUser);
 router.get('/users/:user_id', requireUserAccessToken, usersController.getUserProfile);
 router.patch('/users/:user_id', requireUserAccessToken, usersController.updateUser);

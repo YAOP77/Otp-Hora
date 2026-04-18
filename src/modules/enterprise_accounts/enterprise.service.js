@@ -18,9 +18,12 @@ const {
   sendEmailVerification,
   buildEnterpriseVerifyEmailUrl,
 } = require('../../common/emailService');
+const { encryptApiKey, decryptApiKey } = require('../../common/apiKeyCrypto');
 
 const PIN_REGEX = /^\d{4,6}$/;
-const LOGIN_HISTORY_LIMIT = 5;
+const LOGIN_HISTORY_PREVIEW = 5;
+const LOGIN_HISTORY_DEFAULT_LIMIT = 50;
+const LOGIN_HISTORY_MAX_LIMIT = 200;
 
 function generateApiKey() {
   return randomBytes(32).toString('hex');
@@ -73,12 +76,14 @@ async function registerEnterprise(payload) {
 
   const rawApiKey = generateApiKey();
   const hashedApiKey = await bcrypt.hash(rawApiKey, 12);
+  const encryptedApiKey = encryptApiKey(rawApiKey);
   const pin_hash = await bcrypt.hash(pin, 12);
 
   const enterprise = await enterpriseRepository.createEnterprise({
     company_id: randomUUID(),
     nom_entreprise: nomEntreprise,
     api_key: hashedApiKey,
+    api_key_encrypted: encryptedApiKey,
     status: 'valider',
     phone_e164,
     pin_hash,
@@ -242,7 +247,7 @@ async function getEnterpriseProfile(companyId) {
   const [devices, linkedRows, historyRows] = await Promise.all([
     enterpriseRepository.listEnterpriseDevices(companyId),
     enterpriseRepository.findLinkedUsersForCompany(companyId),
-    enterpriseRepository.listEnterpriseLoginHistory(companyId, LOGIN_HISTORY_LIMIT),
+    enterpriseRepository.listEnterpriseLoginHistory(companyId, LOGIN_HISTORY_PREVIEW),
   ]);
 
   const linked_users = linkedRows.map((row) => ({
@@ -300,9 +305,9 @@ async function updateEnterpriseAccount(payload) {
 
   if (payload?.email !== undefined || payload?.recovery_email !== undefined) {
     throw createError(
-      "L'email doit être géré via PUT /enterprises/me/recovery-email",
+      "L'email de récupération ne peut pas être modifié via cette route",
       400,
-      'USE_RECOVERY_EMAIL_ENDPOINT',
+      'EMAIL_NOT_EDITABLE',
     );
   }
 
@@ -395,14 +400,24 @@ async function registerEnterpriseDevice(payload) {
   });
 }
 
-async function listEnterpriseLoginHistory(companyId) {
-  const rows = await enterpriseRepository.listEnterpriseLoginHistory(companyId, LOGIN_HISTORY_LIMIT);
-  return rows.map((h) => ({
-    history_id: h.history_id,
-    label: formatLoginHistoryLabel(h.device_name, h.connected_at),
-    device_name: h.device_name,
-    connected_at: h.connected_at,
-  }));
+async function listEnterpriseLoginHistory(companyId, { page = 1, limit = LOGIN_HISTORY_DEFAULT_LIMIT } = {}) {
+  const safePage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const safeLimit = Math.min(
+    LOGIN_HISTORY_MAX_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || LOGIN_HISTORY_DEFAULT_LIMIT),
+  );
+  const offset = (safePage - 1) * safeLimit;
+  const rows = await enterpriseRepository.listEnterpriseLoginHistory(companyId, safeLimit, offset);
+  return {
+    page: safePage,
+    limit: safeLimit,
+    items: rows.map((h) => ({
+      history_id: h.history_id,
+      label: formatLoginHistoryLabel(h.device_name, h.connected_at),
+      device_name: h.device_name,
+      connected_at: h.connected_at,
+    })),
+  };
 }
 
 async function setEnterpriseRecoveryEmail(payload) {
@@ -417,6 +432,16 @@ async function setEnterpriseRecoveryEmail(payload) {
   const email = normalizeEmail(emailRaw);
   if (!email) {
     throw createError('Email invalide', 400, 'INVALID_EMAIL');
+  }
+
+  // L'email de récupération ne peut être défini qu'une seule fois.
+  const current = await enterpriseRepository.findEnterpriseByIdForAuth(companyId);
+  if (current?.email) {
+    throw createError(
+      "L'email de récupération est déjà défini et ne peut plus être modifié",
+      409,
+      'RECOVERY_EMAIL_ALREADY_SET',
+    );
   }
 
   const other = await enterpriseRepository.findEnterpriseByEmailExcluding(email, companyId);
@@ -479,6 +504,39 @@ async function verifyEnterpriseRecoveryEmail(payload) {
     email: enterprise.email,
     email_verified: true,
   };
+}
+
+async function getApiKey(companyId) {
+  if (!companyId) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+  const row = await enterpriseRepository.findEncryptedApiKey(companyId);
+  if (!row) {
+    throw createError('Entreprise introuvable', 404, 'ENTERPRISE_NOT_FOUND');
+  }
+  if (!row.api_key_encrypted) {
+    throw createError(
+      'Clé API non récupérable (compte antérieur à cette fonctionnalité). Utilisez POST /api/enterprises/me/api-key/rotate pour obtenir une nouvelle clé.',
+      410,
+      'API_KEY_NOT_RETRIEVABLE',
+    );
+  }
+  const plain = decryptApiKey(row.api_key_encrypted);
+  if (!plain) {
+    throw createError('Impossible de déchiffrer la clé API', 500, 'INTERNAL_ERROR');
+  }
+  return { api_key: plain };
+}
+
+async function rotateApiKeyService(companyId) {
+  if (!companyId) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+  const newKey = generateApiKey();
+  const api_key = await bcrypt.hash(newKey, 12);
+  const api_key_encrypted = encryptApiKey(newKey);
+  await enterpriseRepository.rotateApiKey(companyId, { api_key, api_key_encrypted });
+  return { api_key: newKey };
 }
 
 module.exports = {

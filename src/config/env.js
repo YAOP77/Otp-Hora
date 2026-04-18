@@ -30,6 +30,10 @@ const env = {
     Number.parseInt(process.env.PIN_RESET_TOKEN_TTL_MINUTES, 10) || 15,
   publicAppUrl: process.env.PUBLIC_APP_URL || 'https://app.otp-hora.example',
   publicHoraUrl: process.env.PUBLIC_HORA_URL || process.env.PUBLIC_APP_URL || 'https://otp-hora.onrender.com',
+  // Frontend web Hora (Vercel) — base des consent_url retournées aux entreprises.
+  // Fallback sur publicHoraUrl si non défini (les /flow/consent Express prendront le relais).
+  publicWebUrl: process.env.PUBLIC_WEB_URL || process.env.PUBLIC_HORA_URL || 'https://otp-hora.onrender.com',
+  apiKeyEncryptionKey: process.env.API_KEY_ENCRYPTION_KEY || '',
   flowStateSecret:
     process.env.FLOW_STATE_SECRET || 'dev_flow_state_secret_change_me',
   flowStateTtl:

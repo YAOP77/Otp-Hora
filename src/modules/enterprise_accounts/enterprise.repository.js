@@ -12,6 +12,21 @@ async function createEnterprise(data) {
   });
 }
 
+async function findEncryptedApiKey(companyId) {
+  return prisma.enterprise_accounts.findFirst({
+    where: { company_id: companyId, deleted_at: null },
+    select: { api_key_encrypted: true },
+  });
+}
+
+async function rotateApiKey(companyId, { api_key, api_key_encrypted }) {
+  return prisma.enterprise_accounts.update({
+    where: { company_id: companyId },
+    data: { api_key, api_key_encrypted },
+    select: { company_id: true },
+  });
+}
+
 function notDeletedWhere() {
   return { deleted_at: null };
 }
@@ -272,11 +287,12 @@ async function createEnterpriseLoginHistory(data) {
   });
 }
 
-async function listEnterpriseLoginHistory(companyId, limit) {
+async function listEnterpriseLoginHistory(companyId, limit, offset = 0) {
   return prisma.enterprise_login_history.findMany({
     where: { company_id: companyId },
     orderBy: { connected_at: 'desc' },
     take: limit,
+    skip: offset,
     select: {
       history_id: true,
       device_name: true,
@@ -288,6 +304,8 @@ async function listEnterpriseLoginHistory(companyId, limit) {
 
 module.exports = {
   createEnterprise,
+  findEncryptedApiKey,
+  rotateApiKey,
   findEnterpriseByIdForAuth,
   findEnterpriseForPinRecoveryByPhone,
   findEnterpriseByEmailExcluding,

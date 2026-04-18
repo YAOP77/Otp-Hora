@@ -23,7 +23,8 @@ const { generateUniqueUserKey } = require('../../common/userKey');
 const PIN_REGEX = /^\d{4,6}$/;
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const LOGIN_HISTORY_LIMIT = 5;
+const LOGIN_HISTORY_DEFAULT_LIMIT = 50;
+const LOGIN_HISTORY_MAX_LIMIT = 200;
 
 function validatePin(rawPin) {
   const pin = normalizePinInput(rawPin);
@@ -271,6 +272,7 @@ async function updateUser(payload) {
   const requesterUserId =
     typeof payload?.requester_user_id === 'string' ? payload.requester_user_id.trim() : '';
   const nom = typeof payload?.nom === 'string' ? payload.nom.trim() : '';
+  const prenom = typeof payload?.prenom === 'string' ? payload.prenom.trim() : '';
   const pin = normalizePinInput(payload?.pin);
 
   if (!userId || !UUID_REGEX.test(userId)) {
@@ -283,17 +285,16 @@ async function updateUser(payload) {
 
   if (payload?.email !== undefined || payload?.recovery_email !== undefined) {
     throw createError(
-      "L'email doit être géré via PUT /users/me/recovery-email",
+      "L'email de récupération ne peut pas être modifié via cette route",
       400,
-      'USE_RECOVERY_EMAIL_ENDPOINT',
+      'EMAIL_NOT_EDITABLE',
     );
   }
 
   const data = {};
 
-  if (nom) {
-    data.nom = nom;
-  }
+  if (nom) data.nom = nom;
+  if (prenom) data.prenom = prenom;
 
   if (pin) {
     validatePin(pin);
@@ -336,18 +337,40 @@ async function deleteUser(payload) {
   }
 }
 
-async function listUserLoginHistory(userId) {
+async function getUserKey(userId) {
+  if (!userId || !UUID_REGEX.test(userId)) {
+    throw createError('Non authentifié', 401, 'UNAUTHORIZED');
+  }
+  const user = await usersRepository.findUserByUserKeyFromId(userId);
+  if (!user) {
+    throw createError('Utilisateur introuvable', 404, 'USER_NOT_FOUND');
+  }
+  return { user_key: user.user_key };
+}
+
+async function listUserLoginHistory(userId, { page = 1, limit = LOGIN_HISTORY_DEFAULT_LIMIT } = {}) {
   if (!userId || !UUID_REGEX.test(userId)) {
     throw createError('Le parametre user_id doit etre un UUID valide', 400, 'INVALID_UUID');
   }
 
-  const rows = await usersRepository.listUserLoginHistory(userId, LOGIN_HISTORY_LIMIT);
-  return rows.map((h) => ({
-    history_id: h.history_id,
-    label: formatLoginHistoryLabel(h.device_name, h.connected_at),
-    device_name: h.device_name,
-    connected_at: h.connected_at,
-  }));
+  const safePage = Math.max(1, Number.parseInt(page, 10) || 1);
+  const safeLimit = Math.min(
+    LOGIN_HISTORY_MAX_LIMIT,
+    Math.max(1, Number.parseInt(limit, 10) || LOGIN_HISTORY_DEFAULT_LIMIT),
+  );
+  const offset = (safePage - 1) * safeLimit;
+
+  const rows = await usersRepository.listUserLoginHistory(userId, safeLimit, offset);
+  return {
+    page: safePage,
+    limit: safeLimit,
+    items: rows.map((h) => ({
+      history_id: h.history_id,
+      label: formatLoginHistoryLabel(h.device_name, h.connected_at),
+      device_name: h.device_name,
+      connected_at: h.connected_at,
+    })),
+  };
 }
 
 async function setRecoveryEmail(payload) {
@@ -362,6 +385,16 @@ async function setRecoveryEmail(payload) {
   const email = normalizeEmail(emailRaw);
   if (!email) {
     throw createError('Email invalide', 400, 'INVALID_EMAIL');
+  }
+
+  // L'email de récupération ne peut être défini qu'une seule fois.
+  const current = await usersRepository.findUserById(requesterUserId);
+  if (current?.email) {
+    throw createError(
+      "L'email de récupération est déjà défini et ne peut plus être modifié",
+      409,
+      'RECOVERY_EMAIL_ALREADY_SET',
+    );
   }
 
   const other = await usersRepository.findUserByEmailForUniqueness(email);
@@ -434,6 +467,7 @@ module.exports = {
   updateUser,
   deleteUser,
   listUserLoginHistory,
+  getUserKey,
   setRecoveryEmail,
   verifyRecoveryEmail,
 };

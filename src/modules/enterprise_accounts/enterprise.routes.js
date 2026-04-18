@@ -42,6 +42,17 @@ router.get(
   enterpriseController.listEnterpriseLoginHistory,
 );
 
+router.get(
+  '/enterprises/me/api-key',
+  requireCompanyAccessToken,
+  enterpriseController.getEnterpriseApiKey,
+);
+router.post(
+  '/enterprises/me/api-key/rotate',
+  requireCompanyAccessToken,
+  enterpriseController.rotateEnterpriseApiKey,
+);
+
 module.exports = {
   enterpriseRouter: router,
 };

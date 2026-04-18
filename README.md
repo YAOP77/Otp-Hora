@@ -79,8 +79,10 @@ Variables principales (voir `.env.example` pour la liste complète) :
 | `NODE_ENV` | `development` ou `production` |
 | `PORT` | Port HTTP (défaut : `3000`) |
 | `DATABASE_URL` | Chaîne de connexion PostgreSQL |
-| `PUBLIC_HORA_URL` | URL publique du backend Hora (base des `consent_url`). Ex : `https://otp-hora.onrender.com` |
-| `PUBLIC_APP_URL` | URL publique côté utilisateur (liens dans les emails). Fallback pour `PUBLIC_HORA_URL` |
+| `PUBLIC_HORA_URL` | URL publique du backend Hora (Render). Ex : `https://otp-hora.onrender.com` |
+| `PUBLIC_WEB_URL` | URL publique du frontend web Hora (Vercel). Base des `consent_url` retournées. Ex : `https://otp-hora-web.vercel.app` |
+| `PUBLIC_APP_URL` | URL publique côté utilisateur (liens dans les emails) |
+| `API_KEY_ENCRYPTION_KEY` | Secret pour chiffrer les `api_key` entreprise en AES-256-GCM (retrieval dashboard). **Ne jamais changer** après déploiement. |
 | `FLOW_STATE_SECRET` | Secret JWT pour les formulaires `/flow/consent` (anti-CSRF) |
 | `FLOW_STATE_TTL_SECONDS` | Durée de vie du state JWT (défaut : 900 sec) |
 | `USER_ACCESS_TOKEN_SECRET` / `USER_REFRESH_TOKEN_SECRET` | Secrets JWT utilisateur |
@@ -134,12 +136,19 @@ Toutes les routes sont préfixées par `/api`. Le format de réponse est `{ "dat
 |---------|-------|-------------|
 | GET | `/api/health` | Healthcheck |
 
+### Public (pas d'auth, pour la page web de consentement)
+
+| Méthode | Route | Description |
+|---------|-------|-------------|
+| GET | `/api/flow/links/:link_id` | Infos publiques d'une liaison (pour affichage sur la page de consentement Vercel) |
+
 ### Partenaires (x-api-key ou Bearer entreprise)
 
 | Méthode | Route | Description |
 |---------|-------|-------------|
-| POST | `/api/links` | Crée ou récupère la liaison pour une `user_key`. Body : `{ user_key }`. Retourne `{ link_id, status, consent_url }` |
+| POST | `/api/links` | Crée ou récupère la liaison pour une `user_key`. Body : `{ user_key }`. Retourne `{ link_id, status, consent_url, created_at, updated_at }` |
 | GET | `/api/links/:link_id` | Statut de la liaison (polling) |
+| GET | `/api/enterprises/me/links` | Historique complet des liaisons de l'entreprise (query `?status=...`) |
 
 ### Utilisateur (Bearer user)
 
@@ -162,7 +171,8 @@ Toutes les routes sont préfixées par `/api`. Le format de réponse est `{ "dat
 | GET | `/api/users/:user_id` | Profil (Bearer, self only) |
 | PATCH | `/api/users/:user_id` | Modification `nom` / `pin` (Bearer, self only) |
 | DELETE | `/api/users/:user_id` | Suppression (Bearer, self only) |
-| GET | `/api/users/me/login-history` | 5 dernières connexions (Bearer) |
+| GET | `/api/users/me/login-history` | Historique paginé (query `?page=1&limit=50`, max 200) |
+| GET | `/api/users/me/user-key` | Afficher sa `user_key` (Bearer) |
 | PUT | `/api/users/me/recovery-email` | Email de récupération (Bearer) |
 | POST | `/api/users/email/verify` | Vérification email (`token`) |
 | POST | `/api/users/pin-recovery/request` | Reset PIN (`contact` + email vérifié) |
@@ -189,7 +199,9 @@ Toutes les routes sont préfixées par `/api`. Le format de réponse est `{ "dat
 | GET | `/api/enterprises/me/devices` | Appareils (Bearer company) |
 | POST | `/api/enterprises/me/devices` | Enregistrer appareil (Bearer company) |
 | GET | `/api/enterprises/me/linked-users` | Utilisateurs liés approved (Bearer company) |
-| GET | `/api/enterprises/me/login-history` | Historique connexions (Bearer company) |
+| GET | `/api/enterprises/me/login-history` | Historique paginé (query `?page=1&limit=50`, max 200) |
+| GET | `/api/enterprises/me/api-key` | Afficher sa `api_key` (Bearer company) |
+| POST | `/api/enterprises/me/api-key/rotate` | Régénérer une nouvelle `api_key` (invalide l'ancienne) |
 
 ### Flow web (pages HTML, pas des endpoints JSON)
 

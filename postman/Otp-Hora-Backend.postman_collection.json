@@ -319,7 +319,7 @@
           }
         },
         {
-          "name": "[ENTREPRISE] GET Login history",
+          "name": "[ENTREPRISE] GET Login history (paginé)",
           "request": {
             "method": "GET",
             "header": [
@@ -328,9 +328,79 @@
                 "value": "Bearer {{company_access_token}}"
               }
             ],
-            "url": "{{base_url}}/enterprises/me/login-history",
-            "description": "Sous-ensemble : `login_history` avec libellés du type « Samsung - Lundi 1 janvier à 12:00 »."
+            "url": {
+              "raw": "{{base_url}}/enterprises/me/login-history?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["enterprises", "me", "login-history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Historique paginé (max 200 par page). Réponse : { page, limit, login_history: [...] }."
           }
+        },
+        {
+          "name": "[ENTREPRISE] GET API key (affichage)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/enterprises/me/api-key",
+            "description": "Retourne l'api_key en clair (déchiffrée depuis le stockage AES). 410 API_KEY_NOT_RETRIEVABLE si compte trop ancien (rotater)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.api_key) {",
+                  "    pm.environment.set('api_key', j.data.api_key);",
+                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Rotate API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/enterprises/me/api-key/rotate",
+            "description": "Génère une nouvelle api_key et invalide l'ancienne. Retourne { api_key: '...' }."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.api_key) {",
+                  "    pm.environment.set('api_key', j.data.api_key);",
+                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         },
         {
           "name": "[ENTREPRISE] POST Register device",
@@ -484,7 +554,7 @@
           }
         },
         {
-          "name": "[UTILISATEUR] GET Login history",
+          "name": "[UTILISATEUR] GET Login history (paginé)",
           "request": {
             "method": "GET",
             "header": [
@@ -493,8 +563,30 @@
                 "value": "Bearer {{access_token}}"
               }
             ],
-            "url": "{{base_url}}/users/me/login-history",
-            "description": "5 dernières connexions avec `label` en français (appareil + date/heure)."
+            "url": {
+              "raw": "{{base_url}}/users/me/login-history?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "login-history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Historique paginé (max 200 par page). Réponse : { page, limit, login_history: [...] }."
+          }
+        },
+        {
+          "name": "[UTILISATEUR] GET User key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/me/user-key",
+            "description": "Retourne la user_key de l'utilisateur connecté (ex: x-th-a1b2c)."
           }
         },
         {
@@ -856,6 +948,36 @@
     {
       "name": "identity_links",
       "item": [
+        {
+          "name": "[PUBLIC] GET Link info (pour Vercel)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/flow/links/{{link_id}}",
+            "description": "Endpoint public (pas d'auth) utilisé par la page de consentement Vercel pour afficher le nom de l'entreprise + statut + date. Réponse : { link_id, enterprise_name, status, created_at }."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET My links (historique)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/enterprises/me/links",
+              "host": ["{{base_url}}"],
+              "path": ["enterprises", "me", "links"],
+              "query": [
+                { "key": "status", "value": "", "disabled": true, "description": "Optional: pending|approved|rejected" }
+              ]
+            },
+            "description": "Historique de toutes les liaisons de l'entreprise (avec user attaché). Filtre optionnel ?status=pending|approved|rejected."
+          }
+        },
         {
           "name": "[ENTREPRISE] POST Request identity link (user_key)",
           "request": {

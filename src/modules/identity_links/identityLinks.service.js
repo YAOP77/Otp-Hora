@@ -8,14 +8,14 @@ const { env } = require('../../config/env');
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const USER_KEY_REGEX = /^x-[a-z]{2}-[a-f0-9]{6}$/;
+const USER_KEY_REGEX = /^x-[a-z]{2}-[0-9a-zA-Z]{5}$/;
 
 function isUuid(value) {
   return typeof value === 'string' && UUID_REGEX.test(value);
 }
 
 function buildConsentUrl(linkId) {
-  const base = new URL('/flow/consent', env.publicHoraUrl);
+  const base = new URL('/enterprise', env.publicWebUrl);
   base.searchParams.set('link_id', linkId);
   return base.toString();
 }
@@ -26,6 +26,8 @@ function serializeLink(link, { includeConsentUrl = false } = {}) {
     company_id: link.company_id,
     user_id: link.user_id,
     status: link.status,
+    created_at: link.created_at,
+    updated_at: link.updated_at,
   };
   if (includeConsentUrl && link.status === 'pending') {
     payload.consent_url = buildConsentUrl(link.link_id);
@@ -90,6 +92,28 @@ async function requestLinkByUserKey(payload) {
   }
 }
 
+// GET /api/flow/links/:link_id : public endpoint used by the consent web page
+// (Vercel) to display enterprise name + status. No auth required — link_id
+// is shared in the URL anyway, and the response contains no sensitive data.
+async function getPublicLinkInfo(payload) {
+  const linkId = typeof payload?.link_id === 'string' ? payload.link_id.trim() : '';
+  if (!isUuid(linkId)) {
+    throw createError('Le paramètre link_id doit être un UUID valide', 400, 'INVALID_UUID');
+  }
+
+  const link = await identityLinksRepository.findLinkWithCompanyById(linkId);
+  if (!link) {
+    throw createError('Liaison introuvable', 404, 'LINK_NOT_FOUND');
+  }
+
+  return {
+    link_id: link.link_id,
+    enterprise_name: link.enterprise_accounts?.nom_entreprise || null,
+    status: link.status,
+    created_at: link.created_at,
+  };
+}
+
 // GET /api/links/:link_id : enterprise polls status of one of its links.
 async function getLinkStatus(payload) {
   const companyId = payload?.company_id;
@@ -111,7 +135,7 @@ async function getLinkStatus(payload) {
 
 // ─── USER SIDE ────────────────────────────────────────────────────────
 
-// GET /api/me/links : list current user's links (any status).
+// GET /api/me/links : list current user's links (any status, sorted newest first).
 async function listMyLinks(payload) {
   const userId = payload?.requester_user_id;
   const statusFilter =
@@ -127,6 +151,36 @@ async function listMyLinks(payload) {
     company_id: link.company_id,
     nom_entreprise: link.enterprise_accounts?.nom_entreprise || null,
     status: link.status,
+    created_at: link.created_at,
+    updated_at: link.updated_at,
+  }));
+}
+
+// GET /api/enterprises/me/links : list all links belonging to the enterprise.
+async function listCompanyLinks(payload) {
+  const companyId = payload?.company_id;
+  const statusFilter =
+    typeof payload?.status === 'string' && payload.status ? payload.status : null;
+
+  if (!companyId) {
+    throw createError('company_id introuvable depuis la clé API', 401, 'UNAUTHORIZED');
+  }
+
+  const links = await identityLinksRepository.listLinksByCompany(companyId, statusFilter);
+  return links.map((link) => ({
+    link_id: link.link_id,
+    user_id: link.user_id,
+    user: link.users
+      ? {
+          user_id: link.users.user_id,
+          user_key: link.users.user_key,
+          nom: link.users.nom,
+          prenom: link.users.prenom,
+        }
+      : null,
+    status: link.status,
+    created_at: link.created_at,
+    updated_at: link.updated_at,
   }));
 }
 
@@ -203,7 +257,9 @@ async function deleteMyLink(payload) {
 module.exports = {
   requestLinkByUserKey,
   getLinkStatus,
+  getPublicLinkInfo,
   listMyLinks,
+  listCompanyLinks,
   approveLink,
   rejectLink,
   deleteMyLink,

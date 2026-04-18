@@ -24,6 +24,29 @@ async function getLinkStatus(req, res, next) {
   }
 }
 
+async function getPublicLinkInfo(req, res, next) {
+  try {
+    const info = await identityLinksService.getPublicLinkInfo({
+      link_id: req.params?.link_id,
+    });
+    return res.status(200).json({ data: info });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function listCompanyLinks(req, res, next) {
+  try {
+    const links = await identityLinksService.listCompanyLinks({
+      company_id: req.enterprise?.company_id,
+      status: req.query?.status,
+    });
+    return res.status(200).json({ data: links });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listMyLinks(req, res, next) {
   try {
     const links = await identityLinksService.listMyLinks({
@@ -75,6 +98,8 @@ async function deleteMyLink(req, res, next) {
 module.exports = {
   requestLink,
   getLinkStatus,
+  getPublicLinkInfo,
+  listCompanyLinks,
   listMyLinks,
   approveLink,
   rejectLink,

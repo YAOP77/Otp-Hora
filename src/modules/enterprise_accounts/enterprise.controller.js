@@ -180,10 +180,35 @@ async function listEnterpriseLinkedUsers(req, res, next) {
 
 async function listEnterpriseLoginHistory(req, res, next) {
   try {
-    const rows = await enterpriseService.listEnterpriseLoginHistory(
+    const result = await enterpriseService.listEnterpriseLoginHistory(
       req.companyAuth.company_id,
+      { page: req.query?.page, limit: req.query?.limit },
     );
-    return res.status(200).json({ data: { login_history: rows } });
+    return res.status(200).json({
+      data: {
+        page: result.page,
+        limit: result.limit,
+        login_history: result.items,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function getEnterpriseApiKey(req, res, next) {
+  try {
+    const data = await enterpriseService.getApiKey(req.companyAuth.company_id);
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function rotateEnterpriseApiKey(req, res, next) {
+  try {
+    const data = await enterpriseService.rotateApiKeyService(req.companyAuth.company_id);
+    return res.status(200).json({ data });
   } catch (error) {
     return next(error);
   }
@@ -204,4 +229,6 @@ module.exports = {
   registerEnterpriseDevice,
   listEnterpriseLinkedUsers,
   listEnterpriseLoginHistory,
+  getEnterpriseApiKey,
+  rotateEnterpriseApiKey,
 };

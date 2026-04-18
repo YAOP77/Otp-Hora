@@ -105,6 +105,7 @@ async function updateUser(req, res, next) {
       user_id: req.params?.user_id,
       requester_user_id: req.userAuth?.user_id,
       nom: req.body?.nom,
+      prenom: req.body?.prenom,
       pin: pinFromBody(req.body),
       email: req.body?.email,
       recovery_email: req.body?.recovery_email,
@@ -131,11 +132,27 @@ async function deleteUser(req, res, next) {
   }
 }
 
+async function getUserKey(req, res, next) {
+  try {
+    const data = await usersService.getUserKey(req.userAuth.user_id);
+    return res.status(200).json({ data });
+  } catch (error) {
+    return next(error);
+  }
+}
+
 async function listUserLoginHistory(req, res, next) {
   try {
-    const rows = await usersService.listUserLoginHistory(req.userAuth.user_id);
+    const result = await usersService.listUserLoginHistory(req.userAuth.user_id, {
+      page: req.query?.page,
+      limit: req.query?.limit,
+    });
     return res.status(200).json({
-      data: { login_history: rows },
+      data: {
+        page: result.page,
+        limit: result.limit,
+        login_history: result.items,
+      },
     });
   } catch (error) {
     return next(error);
@@ -175,6 +192,7 @@ module.exports = {
   updateUser,
   deleteUser,
   listUserLoginHistory,
+  getUserKey,
   setRecoveryEmail,
   verifyRecoveryEmail,
 };

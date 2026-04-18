@@ -28,6 +28,13 @@ async function findUserByUserKey(userKey) {
   });
 }
 
+async function findUserByUserKeyFromId(userId) {
+  return prisma.users.findUnique({
+    where: { user_id: userId },
+    select: { user_key: true },
+  });
+}
+
 async function findUserProfileById(userId) {
   return prisma.users.findUnique({
     where: { user_id: userId },
@@ -212,11 +219,12 @@ async function createUserLoginHistory(data) {
   });
 }
 
-async function listUserLoginHistory(userId, limit) {
+async function listUserLoginHistory(userId, limit, offset = 0) {
   return prisma.user_login_history.findMany({
     where: { user_id: userId },
     orderBy: { connected_at: 'desc' },
     take: limit,
+    skip: offset,
     select: {
       history_id: true,
       device_name: true,
@@ -229,6 +237,7 @@ async function listUserLoginHistory(userId, limit) {
 module.exports = {
   createUser,
   findUserByUserKey,
+  findUserByUserKeyFromId,
   findUserProfileById,
   findUserById,
   findUserForLoginByPhone,

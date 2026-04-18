@@ -48,16 +48,17 @@ model user_devices {
 }
 
 model enterprise_accounts {
-  company_id        String    @id @default(uuid()) @db.Uuid
-  nom_entreprise    String
-  api_key           String
-  status            String
-  phone_e164        String?   @unique
-  pin_hash          String?
-  token_version     Int       @default(0)
-  deleted_at        DateTime?
-  email             String?   @unique
-  email_verified_at DateTime?
+  company_id         String    @id @default(uuid()) @db.Uuid
+  nom_entreprise     String
+  api_key            String
+  api_key_encrypted  String?
+  status             String
+  phone_e164         String?   @unique
+  pin_hash           String?
+  token_version      Int       @default(0)
+  deleted_at         DateTime?
+  email              String?   @unique
+  email_verified_at  DateTime?
 
   identity_links                identity_links[]
   enterprise_devices            enterprise_devices[]
@@ -132,15 +133,19 @@ model pin_reset_tokens {
 }
 
 model identity_links {
-  link_id      String @id @default(uuid()) @db.Uuid
-  company_id   String @db.Uuid
-  user_id      String @db.Uuid
+  link_id      String   @id @default(uuid()) @db.Uuid
+  company_id   String   @db.Uuid
+  user_id      String   @db.Uuid
   status       String
+  created_at   DateTime @default(now())
+  updated_at   DateTime @default(now()) @updatedAt
 
   enterprise_accounts enterprise_accounts @relation(fields: [company_id], references: [company_id], onDelete: Cascade)
   users               users               @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
 
   @@unique([user_id, company_id])
+  @@index([user_id, created_at(sort: Desc)])
+  @@index([company_id, created_at(sort: Desc)])
 }
 
 model recovery_methods {
