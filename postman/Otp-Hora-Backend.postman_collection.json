@@ -554,6 +554,44 @@
           }
         },
         {
+          "name": "[UTILISATEUR] GET Me (profil complet)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/me",
+            "description": "Profil complet de l'utilisateur connecté (user_id, user_key, nom, prenom, email, email_verified, contacts, devices, linked_accounts). Pratique pour vérifier la validité de la session au chargement d'une page."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,401,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.user_id) {",
+                  "    pm.environment.set('user_id', j.data.user_id);",
+                  "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
           "name": "[UTILISATEUR] GET Login history (paginé)",
           "request": {
             "method": "GET",

@@ -552,4 +552,6 @@ module.exports = {
   listEnterpriseLoginHistory,
   setEnterpriseRecoveryEmail,
   verifyEnterpriseRecoveryEmail,
+  getApiKey,
+  rotateApiKeyService,
 };
