@@ -39,6 +39,11 @@ tmp/
 temp/
 *.tmp
 
+# Bases de données locales (développement / SQLite)
+*.db
+*.sqlite
+*.sqlite3
+
 # Optionnel : certificats locaux
 *.pem
 *.key
