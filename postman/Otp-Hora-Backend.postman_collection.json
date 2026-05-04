@@ -1,0 +1,1221 @@
+{
+  "info": {
+    "name": "OTP Hora Backend API",
+    "description": "Collection pour tester l'API OTP Hora (Express + Prisma).\n\n**Prérequis**\n- `base_url` : URL du serveur (ex. `https://otp-hora.onrender.com/api`).\n- `api_key` : clé API B2B (hash bcrypt), renvoyée en clair lors de `POST /enterprises` ou `POST /enterprises/register`.\n- `access_token` / `refresh_token` : utilisateur OTP Hora (`POST /users`, `POST /users/login`).\n- `company_access_token` / `company_refresh_token` : application entreprise (`POST /enterprises/login` ou inscription `POST /enterprises/register`).\n\n**Auth partenaire** : routes `links` acceptent `x-api-key` **ou** `Authorization: Bearer` avec un token **entreprise** (`role: company`).\n\n**Flux recommandé**\n1. Entreprise : `POST /enterprises/register` (nom + téléphone E.164 + PIN).\n2. Utilisateur : `POST /users` ou `POST /users/login` → tokens + `user_key`.\n3. `POST /devices` : **Bearer utilisateur** obligatoire ; `POST /enterprises/me/devices` : Bearer entreprise.\n4. Déverrouillage session PIN : `POST /users/session/unlock` ou `POST /enterprises/session/unlock` avec `refresh_token` + PIN.\n5. Historique connexions : `GET /users/me/login-history`, `GET /enterprises/me/login-history`.\n6. Liaison (entreprise) : `POST /links { user_key }` → `GET /links/:link_id` (polling).\n7. Liaison (utilisateur) : `GET /me/links?status=pending` → `POST /me/links/:link_id/approve|reject` → (optionnel) `DELETE /me/links/:link_id` si rejeté.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "otp-hora-backend-v1"
+  },
+  "variable": [
+    {
+      "key": "host_url",
+      "value": "https://otp-hora.onrender.com"
+    },
+    {
+      "key": "base_url",
+      "value": "https://otp-hora.onrender.com/api"
+    },
+    {
+      "key": "api_key",
+      "value": ""
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "contact_id",
+      "value": ""
+    },
+    {
+      "key": "device_id",
+      "value": ""
+    },
+    {
+      "key": "enterprise_id",
+      "value": ""
+    },
+    {
+      "key": "link_id",
+      "value": ""
+    },
+    {
+      "key": "recovery_id",
+      "value": ""
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "refresh_token",
+      "value": ""
+    },
+    {
+      "key": "company_access_token",
+      "value": ""
+    },
+    {
+      "key": "company_refresh_token",
+      "value": ""
+    },
+    {
+      "key": "user_key",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "health",
+      "item": [
+        {
+          "name": "[OTP HORA] GET Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/health",
+            "description": "Vérifie que l'API répond (réponse texte brut, pas JSON)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Body contains running', function () {",
+                  "  pm.expect(pm.response.text()).to.include('running');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "enterprise_accounts",
+      "item": [
+        {
+          "name": "[ENTREPRISE] POST Register (téléphone + PIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_entreprise\": \"Ma Société CI\",\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/register",
+            "description": "Inscription entreprise avec numéro international (E.164). Réponse 201 : `data` (profil), `api_key` (B2B), `auth` (access + refresh tokens entreprise). Exemple erreur : `PHONE_ALREADY_REGISTERED` (409)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Login (téléphone + PIN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+2250700000000\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/login",
+            "description": "Connexion application entreprise. Réponse 200 : `data` + `auth` (Bearer). En-têtes optionnels : `User-Agent`, `X-Device-Name` pour l'historique."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.auth && j.auth.access_token) {",
+                  "    pm.collectionVariables.set('company_access_token', j.auth.access_token);",
+                  "    pm.collectionVariables.set('company_refresh_token', j.auth.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/refresh-token",
+            "description": "Renouvelle les tokens JWT entreprise (refresh token avec role company)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Session unlock (PIN seulement)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{company_refresh_token}}\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/session/unlock",
+            "description": "Après retour sur l'app : vérifie le PIN avec le refresh token valide, réémet access + refresh. Exemple erreur : `INVALID_PIN` (401)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Me (profil, appareils, liens, historique)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Profil entreprise authentifié par JWT : téléphone masqué côté logique liste dans `phone_e164`, `devices`, `linked_users`, `login_history` (5 dernières avec `label` formaté FR)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] PATCH Me (nom, téléphone, PIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom_entreprise\": \"Nouveau nom\",\n  \"phone\": \"+2250700000001\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Mise à jour sécurisée. Téléphone en E.164 ; conflit → `PHONE_ALREADY_REGISTERED` (409)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] DELETE Me (soft delete + PIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me",
+            "description": "Suppression logique : `deleted_at`, statut `deleted`, liens `revoked`, tokens invalidés."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] PUT Recovery email (authentifié)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"contact@entreprise.com\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me/recovery-email",
+            "description": "Email de récupération entreprise ; `email_verified` repasse à false jusqu'à POST /enterprises/email/verify."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Verify enterprise email",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<jwt depuis logs serveur>\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/email/verify",
+            "description": "Confirme l'email entreprise (type `enterprise_email_verify`)."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Enterprise PIN recovery request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/pin-recovery/request",
+            "description": "Corps : `contact` ou `phone` ou `phone_number` (E.164). Email **vérifié** requis. Sinon `RECOVERY_EMAIL_REQUIRED`."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Enterprise PIN recovery confirm",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token email ou logs>\",\n  \"pin\": \"654321\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/pin-recovery/confirm",
+            "description": "`token` + `pin` (ou `code_pin` / `PIN` ; chaîne ou nombre). Réinitialise le PIN ; invalide les JWT (token_version)."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET Login history (paginé)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/enterprises/me/login-history?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["enterprises", "me", "login-history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Historique paginé (max 200 par page). Réponse : { page, limit, login_history: [...] }."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET API key (affichage)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/enterprises/me/api-key",
+            "description": "Retourne l'api_key en clair (déchiffrée depuis le stockage AES). 410 API_KEY_NOT_RETRIEVABLE si compte trop ancien (rotater)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.api_key) {",
+                  "    pm.environment.set('api_key', j.data.api_key);",
+                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Rotate API key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/enterprises/me/api-key/rotate",
+            "description": "Génère une nouvelle api_key et invalide l'ancienne. Retourne { api_key: '...' }."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.api_key) {",
+                  "    pm.environment.set('api_key', j.data.api_key);",
+                  "    pm.collectionVariables.set('api_key', j.data.api_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] POST Register device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{company_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_fingerprint\": \"enterprise-fp-001\",\n  \"device_name\": \"MacBook Pro\"\n}"
+            },
+            "url": "{{base_url}}/enterprises/me/devices",
+            "description": "Associe un appareil au compte entreprise (empreinte unique par société)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "users",
+      "item": [
+        {
+          "name": "[UTILISATEUR] POST Create user (inscription OTP Hora)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Dupont\",\n  \"prenom\": \"Jean\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/users",
+            "description": "Inscription OTP Hora : `nom`, `prenom`, `pin` (4–6 chiffres, hash en base). Pas de biométrie en V1. Enregistre `user_id`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.user_id) {",
+                  "    pm.environment.set('user_id', j.data.user_id);",
+                  "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
+                  "  }",
+                  "  if (j.auth && j.auth.access_token) {",
+                  "    pm.environment.set('access_token', j.auth.access_token);",
+                  "    pm.collectionVariables.set('access_token', j.auth.access_token);",
+                  "  }",
+                  "  if (j.auth && j.auth.refresh_token) {",
+                  "    pm.environment.set('refresh_token', j.auth.refresh_token);",
+                  "    pm.collectionVariables.set('refresh_token', j.auth.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Login (phone + pin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0173243248\",\n  \"PIN\": \"059707\"\n}"
+            },
+            "url": "{{base_url}}/users/login",
+            "description": "Connexion flexible OTP Hora via contact + code PIN. Retourne `access_token` et `refresh_token`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.user_id) {",
+                  "    pm.environment.set('user_id', j.data.user_id);",
+                  "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
+                  "  }",
+                  "  if (j.auth && j.auth.access_token) {",
+                  "    pm.environment.set('access_token', j.auth.access_token);",
+                  "    pm.collectionVariables.set('access_token', j.auth.access_token);",
+                  "  }",
+                  "  if (j.auth && j.auth.refresh_token) {",
+                  "    pm.environment.set('refresh_token', j.auth.refresh_token);",
+                  "    pm.collectionVariables.set('refresh_token', j.auth.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Session unlock (PIN seulement)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\",\n  \"pin\": \"123456\"\n}"
+            },
+            "url": "{{base_url}}/users/session/unlock",
+            "description": "Réouverture app : refresh token encore valide + PIN → nouveaux access/refresh sans refaire un login téléphone complet."
+          }
+        },
+        {
+          "name": "[UTILISATEUR] GET Me (profil complet)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/me",
+            "description": "Profil complet de l'utilisateur connecté (user_id, user_key, nom, prenom, email, email_verified, contacts, devices, linked_accounts). Pratique pour vérifier la validité de la session au chargement d'une page."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,401,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.user_id) {",
+                  "    pm.environment.set('user_id', j.data.user_id);",
+                  "    pm.collectionVariables.set('user_id', j.data.user_id);",
+                  "  }",
+                  "  if (j.data && j.data.user_key) {",
+                  "    pm.environment.set('user_key', j.data.user_key);",
+                  "    pm.collectionVariables.set('user_key', j.data.user_key);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] GET Login history (paginé)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/users/me/login-history?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["users", "me", "login-history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            },
+            "description": "Historique paginé (max 200 par page). Réponse : { page, limit, login_history: [...] }."
+          }
+        },
+        {
+          "name": "[UTILISATEUR] GET User key",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/me/user-key",
+            "description": "Retourne la user_key de l'utilisateur connecté (ex: x-th-a1b2c)."
+          }
+        },
+        {
+          "name": "[UTILISATEUR] GET User profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/{{user_id}}?include_pin_hash=true",
+            "description": "Retourne les infos utilisateur OTP Hora : `nom`, `prenom`, `contacts`, `linked_accounts_count`, `linked_accounts`. `include_pin_hash=true` ajoute `pin_hash`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Refresh user token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": "{{base_url}}/users/refresh-token",
+            "description": "Renouvelle les tokens utilisateur OTP Hora via `refresh_token`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.access_token) {",
+                  "    pm.environment.set('access_token', j.data.access_token);",
+                  "    pm.collectionVariables.set('access_token', j.data.access_token);",
+                  "  }",
+                  "  if (j.data && j.data.refresh_token) {",
+                  "    pm.environment.set('refresh_token', j.data.refresh_token);",
+                  "    pm.collectionVariables.set('refresh_token', j.data.refresh_token);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": "{{base_url}}/users/logout",
+            "description": "Déconnexion utilisateur (route protégée). Invalide la session courante via rotation de version token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,401,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] PATCH Update user profile",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nom\": \"Dupont Updated\",\n  \"pin\": \"654321\"\n}"
+            },
+            "url": "{{base_url}}/users/{{user_id}}",
+            "description": "Modifie ses informations (`nom` et/ou `pin`). Route protégée (utilisateur propriétaire)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] DELETE Delete own account",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/users/{{user_id}}",
+            "description": "Supprime définitivement son compte OTP Hora (route protégée)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "user_contacts",
+      "item": [
+        {
+          "name": "[UTILISATEUR] POST Create contact (téléphone)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{user_id}}\",\n  \"phone_number\": \"+33600000000\"\n}"
+            },
+            "url": "{{base_url}}/contacts",
+            "description": "Ajoute un contact pour `user_id`. Renseigner `user_id` (collection/env) avant l'appel."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.contact_id) {",
+                  "    pm.environment.set('contact_id', j.data.contact_id);",
+                  "    pm.collectionVariables.set('contact_id', j.data.contact_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "user_devices",
+      "item": [
+        {
+          "name": "[UTILISATEUR] POST Register device",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"device_fingerprint\": \"fp-demo-001\",\n  \"device_name\": \"Samsung Note 5\"\n}"
+            },
+            "url": "{{base_url}}/devices",
+            "description": "Enregistre un appareil pour l'utilisateur authentifié (Bearer obligatoire). `device_name` ou en-tête `X-Device-Name` / `User-Agent` pour l'historique."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([201,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.device_id) {",
+                  "    pm.environment.set('device_id', j.data.device_id);",
+                  "    pm.collectionVariables.set('device_id', j.data.device_id);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "account_recovery",
+      "item": [
+        {
+          "name": "[UTILISATEUR] PUT Recovery email (authentifié)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}"
+            },
+            "url": "{{base_url}}/users/me/recovery-email",
+            "description": "Définit ou modifie l'email de récupération. `email_verified` repasse à false jusqu'à POST /users/email/verify."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Verify email (token du mail)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<jwt depuis les logs serveur en dev>\"\n}"
+            },
+            "url": "{{base_url}}/users/email/verify",
+            "description": "Confirme l'email (lien dans le mail mock : voir logs `emailService`)."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Request PIN recovery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact\": \"+2250700000000\"\n}"
+            },
+            "url": "{{base_url}}/users/pin-recovery/request",
+            "description": "`contact` ou `phone` ou `phone_number` (E.164). Email **vérifié** requis sinon `RECOVERY_EMAIL_REQUIRED` (403). En dev, lien reset dans les logs."
+          }
+        },
+        {
+          "name": "[PUBLIC] POST Confirm PIN recovery",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"<token depuis email ou logs>\",\n  \"pin\": \"654321\"\n}"
+            },
+            "url": "{{base_url}}/users/pin-recovery/confirm",
+            "description": "`token` + PIN (`pin` ou `code_pin` / `PIN`). Usage unique, TTL `PIN_RESET_TOKEN_TTL_MINUTES` (défaut 15)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "identity_links",
+      "item": [
+        {
+          "name": "[PUBLIC] GET Link info (pour Vercel)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/flow/links/{{link_id}}",
+            "description": "Endpoint public (pas d'auth) utilisé par la page de consentement Vercel pour afficher le nom de l'entreprise + statut + date. Réponse : { link_id, enterprise_name, status, created_at }."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] GET My links (historique)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/enterprises/me/links",
+              "host": ["{{base_url}}"],
+              "path": ["enterprises", "me", "links"],
+              "query": [
+                { "key": "status", "value": "", "disabled": true, "description": "Optional: pending|approved|rejected" }
+              ]
+            },
+            "description": "Historique de toutes les liaisons de l'entreprise (avec user attaché). Filtre optionnel ?status=pending|approved|rejected."
+          }
+        },
+        {
+          "name": "[ENTREPRISE] POST Request identity link (user_key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_key\": \"{{user_key}}\"\n}"
+            },
+            "url": "{{base_url}}/links",
+            "description": "L'entreprise demande une liaison pour l'utilisateur Hora identifié par `user_key`. Idempotent : si la liaison existe déjà pour (user_key, company_id), renvoie l'existante avec son statut actuel (201 si création, 200 si récupération). Réponse : `{ link_id, company_id, user_id, status, consent_url }`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,201,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});",
+                  "try {",
+                  "  const j = pm.response.json();",
+                  "  if (j.data && j.data.link_id) {",
+                  "    pm.environment.set('link_id', j.data.link_id);",
+                  "    pm.collectionVariables.set('link_id', j.data.link_id);",
+                  "  }",
+                  "  if (j.data && j.data.consent_url) {",
+                  "    pm.environment.set('consent_url', j.data.consent_url);",
+                  "    pm.collectionVariables.set('consent_url', j.data.consent_url);",
+                  "  }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[ENTREPRISE] GET Link status (polling)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-api-key",
+                "value": "{{api_key}}"
+              }
+            ],
+            "url": "{{base_url}}/links/{{link_id}}",
+            "description": "Polling du statut d'une liaison par l'entreprise. Retourne `{ link_id, user_id, company_id, status, consent_url (si pending) }`. Statuts possibles : `pending`, `approved`, `rejected`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] GET My links",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/me/links",
+            "description": "Liste des liaisons de l'utilisateur connecté. Query optionnel : `?status=pending|approved|rejected` pour filtrer."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Approve link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/me/links/{{link_id}}/approve",
+            "description": "L'utilisateur approuve une liaison pending. Erreurs : 404 `LINK_NOT_FOUND`, 409 `LINK_NOT_PENDING`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] POST Reject link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/me/links/{{link_id}}/reject",
+            "description": "L'utilisateur refuse une liaison pending. Erreurs : 404 `LINK_NOT_FOUND`, 409 `LINK_NOT_PENDING`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "[UTILISATEUR] DELETE Rejected link",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": "{{base_url}}/me/links/{{link_id}}",
+            "description": "L'utilisateur supprime une liaison rejetée pour permettre au partenaire de retenter. Seules les liaisons en statut `rejected` peuvent être supprimées. Erreur : 409 `LINK_NOT_REJECTED` si autre statut."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status in expected range', function () {",
+                  "  pm.expect([200,400,401,403,404,409,500]).to.include(pm.response.code);",
+                  "});",
+                  "pm.test('JSON has data or error', function () {",
+                  "  try { const j = pm.response.json(); pm.expect(j.data !== undefined || j.error !== undefined).to.be.true; } catch (e) { pm.expect.fail('Invalid JSON'); }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

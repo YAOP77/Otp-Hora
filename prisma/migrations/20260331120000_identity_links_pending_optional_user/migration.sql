@@ -1,0 +1,2 @@
+-- No-op migration kept for history consistency.
+-- Changes are already included in baseline migration 20260101000000_baseline_existing_database.
